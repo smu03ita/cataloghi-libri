@@ -1,0 +1,32 @@
+name: unisci-cartelle
+# Unisce le cartelle con lo stesso nome nel Drive (Google Drive le ammette) sotto un percorso. Parte a mano.
+on:
+  workflow_dispatch:
+    inputs:
+      percorso:
+        description: 'Percorso nel Drive, sotto "Fabula App/cataloghi/"'
+        required: true
+        default: 'Italia/schede_deepseek'
+permissions:
+  contents: read
+jobs:
+  unisci:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Strumenti
+        run: curl -s https://rclone.org/install.sh | sudo bash > /dev/null
+      - name: Accesso al Drive
+        env:
+          RCLONE_CONF: ${{ secrets.RCLONE_CONF }}
+        run: python3 strumenti/rclone_conf.py
+      - name: Unisci
+        env:
+          PERCORSO: ${{ inputs.percorso }}
+        run: |
+          P="drive:Fabula App/cataloghi/$PERCORSO"
+          echo "prima:"; rclone lsf "$P" --dirs-only 2>&1 | sort | uniq -c
+          rclone dedupe --dedupe-mode merge -v "$P" 2>&1 | grep -v -i "token" | tail -20
+          echo "dopo:"; rclone lsf "$P" --dirs-only 2>&1 | sort | uniq -c
+          echo "::notice title=unione::$(rclone lsf "$P" --dirs-only 2>&1 | sort | uniq -c | tr '\n' ' ')"
