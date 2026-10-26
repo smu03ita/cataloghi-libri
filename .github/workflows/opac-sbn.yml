@@ -1,7 +1,8 @@
 name: opac-sbn
 # Schede complete dall'OPAC SBN (UNIMARC via Z39.50), una richiesta alla volta. Tutto nel Drive (cataloghi/Italia/schede_complete):
 # l'ordine dei libri, cosa è già fatto, le schede, il riepilogo di ogni giro. Riprende sempre da dove era arrivato;
-# se il server non risponde (di notte) si ferma in 1-2 minuti. Vedi strumenti/opac_sbn.py.
+# se il server non risponde aspetta 10 minuti e riprova; alla fine di ogni giro ne parte subito un altro (i giri programmati
+# di GitHub spesso non partono), tranne a coda finita o per errori veri. Vedi strumenti/opac_sbn.py.
 # Segreto: RCLONE_CONF (accesso al Drive).
 on:
   schedule:

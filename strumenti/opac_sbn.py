@@ -35,6 +35,7 @@ CARTELLA = f'{DRIVE_ITALIA}/schede_complete'
 PAUSA = 0.35            # secondi tra una richiesta e l'altra
 LOTTO = 200             # libri per sessione (alla fine della sessione le schede vengono lette e salvate)
 PARTE = 2000            # libri per file nel Drive
+ATTESA = 600            # se il server non risponde: secondi di attesa prima di riprovare (dentro lo stesso giro)
 
 def isbn13(s):
     d = re.sub(r'[^0-9Xx]', '', s or '').upper()
@@ -413,6 +414,7 @@ def main():
         tot['in_coda'], tot['gia_fatti'] = len(coda), len(fatti)
         pos = 0
         while time.time() < fine - 120:
+            inizio_lotto = pos
             presi = []
             while pos < len(coda) and len(presi) < LOTTO:
                 c, i, o = coda[pos]
@@ -426,7 +428,17 @@ def main():
             if not presi:
                 nota = 'coda finita'
                 break
-            esiti, dati = scarica_lotto(presi, os.path.join(a.lavoro, 'lotto.mrc'), a.yaz)
+            try:
+                esiti, dati = scarica_lotto(presi, os.path.join(a.lavoro, 'lotto.mrc'), a.yaz)
+            except Fermati as e:
+                # server muto (di notte, o un momento di pausa): si aspetta dentro il giro e si riprova lo stesso lotto
+                tot['pause'] = tot.get('pause', 0) + 1
+                pos = inizio_lotto
+                if time.time() + ATTESA > fine - 180:
+                    raise
+                print(f'{datetime.datetime.now():%H:%M} {e}: riprovo tra {ATTESA // 60} minuti', flush=True)
+                time.sleep(ATTESA)
+                continue
             schede, per_isbn = {}, {}
             for r in leggi_marc(dati):
                 x = scheda(r)
@@ -470,7 +482,8 @@ def main():
             parte.scarica()
         except Exception as e:
             nota = (nota + ' · ' if nota else '') + senza_segreti(str(e))[:300]
-        continua = not nota          # finito il tempo con il server che risponde: si riparte subito
+        # il giro successivo parte sempre, tranne a coda finita o per errori veri (Drive, programma)
+        continua = nota == '' or nota.startswith('fermato')
         nota = senza_segreti(nota)
         dati = dict(tot, inizio=inizio.isoformat(timespec='seconds'),
                     fine=datetime.datetime.now(datetime.timezone.utc).isoformat(timespec='seconds'), nota=nota or 'ok')
