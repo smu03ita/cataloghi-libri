@@ -1,0 +1,40 @@
+name: trame-wikipedia
+# Trame da Wikipedia per le opere della selezione SBN con pagina Wikipedia: 50 pagine per richiesta, una richiesta alla volta.
+# Risultati nella cartella della selezione nel Drive (trame_wikipedia_XX.jsonl, trame_riepilogo.json).
+# Parte a mano o cambiando avvia/trame.txt. Segreto: RCLONE_CONF.
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ['avvia/trame.txt']
+permissions:
+  contents: read
+concurrency:
+  group: trame-wikipedia
+  cancel-in-progress: false
+jobs:
+  trame:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+      - name: Strumenti
+        run: |
+          curl -s https://rclone.org/install.sh | sudo bash > /dev/null
+          pip install -q requests mwparserfromhell
+      - name: Accesso al Drive
+        env:
+          RCLONE_CONF: ${{ secrets.RCLONE_CONF }}
+        run: python3 strumenti/rclone_conf.py
+      - name: Trame
+        run: |
+          export LAVORO="$RUNNER_TEMP/trame"
+          set -o pipefail
+          python3 -u strumenti/trame_wikipedia.py 2>&1 | tee "$RUNNER_TEMP/trame.log"
+      - name: Registro
+        if: always()
+        run: |
+          f="$RUNNER_TEMP/trame.log"
+          [ -f "$f" ] || exit 0
+          python3 strumenti/registro_pulito.py "$f"
+          rclone copyto "$f" "drive:Fabula App/cataloghi/Italia/registri/trame_$(date -u +%Y%m%d_%H%M).log"
