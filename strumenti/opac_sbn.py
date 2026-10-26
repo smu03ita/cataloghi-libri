@@ -155,11 +155,13 @@ class Sessione:
 
     def hits(self, query):
         righe = self.cmd(f'find {query}')
-        for x in righe:
-            m = re.search(r'Number of hits:\s*(\d+)', x)
-            if m:
-                return int(m.group(1))
-        return 0
+        testo = '\n'.join(righe)
+        # 26/10: dopo una pausa il server ha risposto "0" a tutto (ricerca fallita, non libro assente): 2.000 libri segnati
+        # per errore come non trovati. Ora conta solo una ricerca riuscita; il resto è un problema del server.
+        if re.search(r'search was a\b.*failure|diagnostic', testo, re.I):
+            raise TimeoutError('ricerca non riuscita: ' + ' | '.join(x for x in righe if x.strip())[-200:])
+        m = re.search(r'Number of hits:\s*(\d+)', testo)
+        return int(m.group(1)) if m else 0
 
     def chiudi(self):
         try:
@@ -200,6 +202,9 @@ def scarica_lotto(codici, file_marc, comando='yaz-client'):
                     raise Fermati('il server non risponde (3 volte di fila)')
     finally:
         s.chiudi()   # alla chiusura yaz-client scrive tutte le schede nel file
+    # di solito i libri non trovati sono quasi zero: un lotto intero senza niente è il server che non cerca davvero
+    if len(codici) >= 50 and not any(v == 'presa' for v in esiti.values()):
+        raise Fermati(f'il server risponde ma non trova niente ({len(codici)} libri di fila)')
     dati = open(file_marc, 'rb').read() if os.path.exists(file_marc) else b''
     return esiti, dati
 
@@ -317,17 +322,19 @@ def gia_fatti(lavoro):
     fatti, errori, con_sinossi = set(), collections.Counter(), set()
     for nome in os.listdir(dest):
         with gzip.open(os.path.join(dest, nome), 'rt', encoding='utf-8') as g:
-            for l in g:
-                p = l.rstrip('\n').split('\t')
-                if len(p) < 4 or p[0] == 'codice':
-                    continue
-                codice, esito, sinossi, opera = p[:4]
-                if esito in ('fatta', 'non_trovata'):
-                    fatti.add(codice)
-                else:
-                    errori[codice] += 1
-                if sinossi == '1' and opera:
-                    con_sinossi.add(opera)
+            righe = [l.rstrip('\n').split('\t') for l in g]
+        righe = [p for p in righe if len(p) >= 4 and p[0] != 'codice']
+        # file di soli "non trovati" (server che non cercava, 26/10 pomeriggio): non valgono, quei libri si rifanno
+        if len(righe) >= 100 and all(p[1] == 'non_trovata' for p in righe):
+            continue
+        for p in righe:
+            codice, esito, sinossi, opera = p[:4]
+            if esito in ('fatta', 'non_trovata'):
+                fatti.add(codice)
+            else:
+                errori[codice] += 1
+            if sinossi == '1' and opera:
+                con_sinossi.add(opera)
     fatti |= {c for c, n in errori.items() if n >= 2}
     return fatti, con_sinossi
 
