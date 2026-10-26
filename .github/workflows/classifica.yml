@@ -1,0 +1,24 @@
+name: classifica
+# Le prime 200 opere della classifica della selezione SBN in un CSV nel Drive (da aprire con Google Fogli).
+# Parte a mano o cambiando avvia/classifica.txt. Segreto: RCLONE_CONF.
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ['avvia/classifica.txt']
+permissions:
+  contents: read
+jobs:
+  classifica:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Strumenti
+        run: curl -s https://rclone.org/install.sh | sudo bash > /dev/null
+      - name: Accesso al Drive
+        env:
+          RCLONE_CONF: ${{ secrets.RCLONE_CONF }}
+        run: python3 strumenti/rclone_conf.py
+      - name: Classifica
+        run: python3 strumenti/classifica.py 200
