@@ -1,0 +1,122 @@
+name: confronto-cataloghi
+# Cataloghi nazionali (nel Drive) confrontati con Open Library e Wikidata/Wikipedia.
+# 1) elenco dei file  2) estrazione dei libri con ISBN, un lavoro per file, in parallelo  3) confronto e conteggi per paese.
+# Si può rilanciare: i file già estratti vengono saltati. Parte a mano o cambiando avvia/confronto.txt.
+# Segreti: RCLONE_CONF (accesso al Drive).
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ['avvia/confronto.txt']
+permissions:
+  contents: read
+concurrency:
+  group: confronto-cataloghi
+  cancel-in-progress: false
+env:
+  BASE: 'drive:Fabula App/cataloghi'
+jobs:
+  elenco:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    outputs:
+      pezzi: ${{ steps.elenco.outputs.pezzi }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Strumenti
+        run: curl -s https://rclone.org/install.sh | sudo bash > /dev/null
+      - name: Accesso al Drive
+        env:
+          RCLONE_CONF: ${{ secrets.RCLONE_CONF }}
+        run: |
+          if [ -z "$RCLONE_CONF" ]; then echo "Manca il segreto RCLONE_CONF"; exit 1; fi
+          python3 strumenti/rclone_conf.py
+      - name: Elenco dei file
+        id: elenco
+        run: python3 strumenti/elenco.py
+
+  estrai:
+    needs: elenco
+    if: needs.elenco.outputs.pezzi != '[]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    strategy:
+      fail-fast: false
+      max-parallel: 20
+      matrix:
+        pezzo: ${{ fromJSON(needs.elenco.outputs.pezzi) }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Strumenti
+        run: |
+          sudo apt-get install -y -qq pigz > /dev/null
+          curl -s https://rclone.org/install.sh | sudo bash > /dev/null
+          pip install -q lxml
+      - name: Accesso al Drive
+        env:
+          RCLONE_CONF: ${{ secrets.RCLONE_CONF }}
+        run: python3 strumenti/rclone_conf.py
+      - name: Estrazione
+        env:
+          PAESE: ${{ matrix.pezzo.paese }}
+          PERCORSO: ${{ matrix.pezzo.percorso }}
+          NOME: ${{ matrix.pezzo.nome }}
+        run: |
+          set -o pipefail
+          OUT="$RUNNER_TEMP/out"; mkdir -p "$OUT"
+          SRC="$BASE/$PAESE/$PERCORSO"
+          R="--retries 5 --low-level-retries 20"
+          case "$NOME" in
+            *.zip)
+              rclone copyto "$SRC" "$RUNNER_TEMP/file.zip" $R
+              python3 -u strumenti/estrai.py "$PAESE" "$NOME" "$OUT" --zip "$RUNNER_TEMP/file.zip" < /dev/null ;;
+            *.gz)
+              rclone cat "$SRC" $R | pigz -dc | python3 -u strumenti/estrai.py "$PAESE" "$NOME" "$OUT" ;;
+            *)
+              rclone cat "$SRC" $R | python3 -u strumenti/estrai.py "$PAESE" "$NOME" "$OUT" ;;
+          esac
+          ls -la "$OUT"
+          rclone copy "$OUT" "$BASE/_confronto/estratti/$PAESE" $R
+
+  confronto:
+    needs: [elenco, estrai]
+    if: always() && needs.elenco.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 340
+    steps:
+      - uses: actions/checkout@v4
+      - name: Strumenti
+        run: |
+          sudo apt-get install -y -qq pigz > /dev/null
+          curl -s https://rclone.org/install.sh | sudo bash > /dev/null
+          pip install -q pandas numpy requests
+      - name: Accesso al Drive
+        env:
+          RCLONE_CONF: ${{ secrets.RCLONE_CONF }}
+        run: python3 strumenti/rclone_conf.py
+      - name: Estratti dal Drive
+        run: |
+          mkdir -p "$RUNNER_TEMP/estratti"
+          rclone copy "$BASE/_confronto/estratti" "$RUNNER_TEMP/estratti" --transfers 8
+          du -sh "$RUNNER_TEMP/estratti"
+          ultima=$(rclone lsf "$BASE/Italia" --dirs-only | grep '^selezione_20' | sort | tail -1)
+          [ -n "$ultima" ] && rclone copyto "$BASE/Italia/${ultima}riepilogo.json" "$RUNNER_TEMP/riepilogo_italia.json" || true
+      - name: Confronto
+        env:
+          OL_EDIZIONI: 'drive:Fabula App/cataloghi/Inglese - Open Library/2026-09-30/ol_dump_editions_2026-09-30.txt.gz'
+          OL_OPERE: 'drive:Fabula App/cataloghi/Inglese - Open Library/2026-09-30/ol_dump_works_2026-09-30.txt.gz'
+        run: |
+          export ESTRATTI="$RUNNER_TEMP/estratti" USCITA="$RUNNER_TEMP/uscita" LAVORO="$RUNNER_TEMP/lavoro" RIEPILOGO_ITALIA="$RUNNER_TEMP/riepilogo_italia.json"
+          set -o pipefail
+          python3 -u strumenti/confronto.py 2>&1 | tee "$RUNNER_TEMP/confronto.log"
+      - name: Risultati nel Drive
+        if: always()
+        run: |
+          [ -d "$RUNNER_TEMP/uscita" ] && rclone copy "$RUNNER_TEMP/uscita" "$BASE/_confronto" || true
+      - name: Registro
+        if: always()
+        run: |
+          f="$RUNNER_TEMP/confronto.log"
+          [ -f "$f" ] || exit 0
+          python3 strumenti/registro_pulito.py "$f"
+          rclone copyto "$f" "$BASE/_confronto/registri/confronto_$(date -u +%Y%m%d_%H%M).log"

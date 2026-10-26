@@ -1,0 +1,56 @@
+name: opac-sbn
+# Schede complete dall'OPAC SBN (UNIMARC via Z39.50), una richiesta alla volta. Tutto nel Drive (cataloghi/Italia/schede_complete):
+# l'ordine dei libri, cosa è già fatto, le schede, il riepilogo di ogni giro. Riprende sempre da dove era arrivato;
+# se il server non risponde (di notte) si ferma in 1-2 minuti. Vedi strumenti/opac_sbn.py.
+# Segreto: RCLONE_CONF (accesso al Drive).
+on:
+  schedule:
+    - cron: '7 * * * *'        # ogni ora, giorno e notte: così si scoprono gli orari veri del server SBN
+  workflow_dispatch:
+  push:                        # per far partire un giro a mano: cambiare avvia/opac.txt
+    branches: [main]
+    paths: ['avvia/opac.txt']
+permissions:
+  contents: read
+concurrency:
+  group: opac-sbn
+  cancel-in-progress: false
+jobs:
+  scarica:
+    runs-on: ubuntu-latest
+    timeout-minutes: 59
+    steps:
+      - name: Controllo del segreto
+        id: segreti
+        env:
+          RCLONE_CONF: ${{ secrets.RCLONE_CONF }}
+        run: |
+          if [ -z "$RCLONE_CONF" ]; then echo "Manca il segreto RCLONE_CONF: niente da fare."; echo "ok=no" >> "$GITHUB_OUTPUT"
+          else echo "ok=si" >> "$GITHUB_OUTPUT"; fi
+      - uses: actions/checkout@v4
+        if: steps.segreti.outputs.ok == 'si'
+      - name: Strumenti
+        if: steps.segreti.outputs.ok == 'si'
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq yaz > /dev/null
+          curl -s https://rclone.org/install.sh | sudo bash > /dev/null
+          pip install -q pymarc
+      - name: Accesso al Drive
+        if: steps.segreti.outputs.ok == 'si'
+        env:
+          RCLONE_CONF: ${{ secrets.RCLONE_CONF }}
+        run: python3 strumenti/rclone_conf.py
+      - name: Schede complete
+        if: steps.segreti.outputs.ok == 'si'
+        env:
+          SBN_SELEZIONE_DA: 'selezione_2026-10-26'   # le selezioni più vecchie non si usano
+        run: |
+          set -o pipefail
+          python3 -u strumenti/opac_sbn.py --minuti 54 2>&1 | tee "$RUNNER_TEMP/opac.log"
+      - name: Registro
+        if: always() && steps.segreti.outputs.ok == 'si'
+        run: |
+          f="$RUNNER_TEMP/opac.log"
+          [ -f "$f" ] || exit 0
+          python3 strumenti/registro_pulito.py "$f"
+          rclone copyto "$f" "drive:Fabula App/cataloghi/Italia/registri/opac_$(date -u +%Y%m%d_%H%M).log"
