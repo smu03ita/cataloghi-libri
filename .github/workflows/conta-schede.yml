@@ -1,0 +1,25 @@
+name: conta-schede
+# Conta le schede DeepSeek nel Drive (solo numeri). Parte a mano o cambiando avvia/conta.txt. Segreto: RCLONE_CONF.
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ['avvia/conta.txt']
+permissions:
+  contents: read
+jobs:
+  conta:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Strumenti
+        run: curl -s https://rclone.org/install.sh | sudo bash > /dev/null
+      - name: Accesso al Drive
+        env:
+          RCLONE_CONF: ${{ secrets.RCLONE_CONF }}
+        run: python3 strumenti/rclone_conf.py
+      - name: Conta
+        run: |
+          rclone dedupe --dedupe-mode merge "drive:Fabula App/cataloghi/Italia/schede_deepseek" || true
+          python3 strumenti/conta_schede.py
