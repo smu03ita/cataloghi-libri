@@ -1,0 +1,31 @@
+name: campione-856
+# Controllo dei collegamenti (856) nel catalogo tedesco: quante schede hanno il testo dell'editore. Parte cambiando avvia/campione.txt.
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ['avvia/campione.txt']
+permissions:
+  contents: read
+jobs:
+  campione:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Strumenti
+        run: |
+          sudo apt-get install -y -qq pigz > /dev/null
+          curl -s https://rclone.org/install.sh | sudo bash > /dev/null
+      - name: Accesso al Drive
+        env:
+          RCLONE_CONF: ${{ secrets.RCLONE_CONF }}
+        run: python3 strumenti/rclone_conf.py
+      - name: Campione
+        run: |
+          for n in 5 4; do
+            echo "== pacchetto $n"
+            rclone cat "drive:Fabula App/cataloghi/Germania/2026-10-13/dnb_all_dnbmarc_20261013.$n.mrc.gz" | pigz -dc | python3 strumenti/campione_856.py 300000 | tee -a out.txt || true
+          done
+          tail -c 3500 out.txt | sed 's/%/%25/g' | awk 'BEGIN{ORS="%0A"}{print}' | sed 's/^/::notice title=campione::/'
+          echo
