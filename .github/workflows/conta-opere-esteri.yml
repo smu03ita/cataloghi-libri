@@ -1,0 +1,23 @@
+name: conta-opere-esteri
+# Quante schede servirebbero per i libri esteri con descrizione di Open Library, contando una scheda per opera (non per
+# edizione). Solo numeri. Parte a mano. Segreto: RCLONE_CONF.
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  conta:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Strumenti
+        run: curl -s https://rclone.org/install.sh | sudo bash > /dev/null
+      - name: Accesso al Drive
+        env:
+          RCLONE_CONF: ${{ secrets.RCLONE_CONF }}
+        run: python3 strumenti/rclone_conf.py
+      - name: Conta
+        env:
+          LAVORO: ${{ runner.temp }}/opere
+        run: python3 -u strumenti/conta_opere_esteri.py
