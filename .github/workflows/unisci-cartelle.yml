@@ -27,7 +27,7 @@ jobs:
         run: |
           P="drive:Fabula App/cataloghi/$PERCORSO"
           echo "prima:"; rclone lsf "$P" --dirs-only 2>&1 | sort | uniq -c
-          rclone dedupe --dedupe-mode merge -v "$P" > dedupe.log 2>&1 || true
+          rclone dedupe --dedupe-mode skip -v "$P" > dedupe.log 2>&1 || true
           grep -v -i "token\|client_id" dedupe.log | tail -15 > dedupe_corto.log
           echo "::notice title=dedupe::$(sed 's/%/%25/g' dedupe_corto.log | tr '\n' '|' )"
           echo "dopo:"; rclone lsf "$P" --dirs-only 2>&1 | sort | uniq -c

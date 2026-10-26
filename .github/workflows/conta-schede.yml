@@ -21,5 +21,5 @@ jobs:
         run: python3 strumenti/rclone_conf.py
       - name: Conta
         run: |
-          rclone dedupe --dedupe-mode merge "drive:Fabula App/cataloghi/Italia/schede_deepseek" || true
+          rclone dedupe --dedupe-mode skip "drive:Fabula App/cataloghi/Italia/schede_deepseek" || true
           python3 strumenti/conta_schede.py
