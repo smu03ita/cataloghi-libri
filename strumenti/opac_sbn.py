@@ -470,11 +470,16 @@ def main():
             parte.scarica()
         except Exception as e:
             nota = (nota + ' · ' if nota else '') + senza_segreti(str(e))[:300]
+        continua = not nota          # finito il tempo con il server che risponde: si riparte subito
         nota = senza_segreti(nota)
         dati = dict(tot, inizio=inizio.isoformat(timespec='seconds'),
                     fine=datetime.datetime.now(datetime.timezone.utc).isoformat(timespec='seconds'), nota=nota or 'ok')
         scrivi_giro(a.lavoro, giro, dati, a.locale)
         print('fine:', json.dumps(dati, ensure_ascii=False), flush=True)
+        print(f"::notice title=giro OPAC::schede {tot['schede']} (con presentazione {tot['con_sinossi']}), non trovate {tot['non_trovate']}, "
+              f"errori {tot['errori']} · {nota or 'tempo finito, si riparte'}", flush=True)
+        if continua:
+            open(os.path.join(a.lavoro, 'continua'), 'w').close()
 
 
 if __name__ == '__main__':

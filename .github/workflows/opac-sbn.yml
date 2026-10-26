@@ -5,13 +5,15 @@ name: opac-sbn
 # Segreto: RCLONE_CONF (accesso al Drive).
 on:
   schedule:
-    - cron: '7 * * * *'        # ogni ora, giorno e notte: così si scoprono gli orari veri del server SBN
+    - cron: '7,22,37,52 * * * *'   # ogni 15 minuti, giorno e notte (GitHub salta spesso i giri programmati); se il server
+                                   # risponde, alla fine di ogni giro ne parte subito un altro (passo "Giro successivo")
   workflow_dispatch:
   push:                        # per far partire un giro a mano: cambiare avvia/opac.txt
     branches: [main]
     paths: ['avvia/opac.txt']
 permissions:
   contents: read
+  actions: write          # per far partire il giro successivo
 concurrency:
   group: opac-sbn
   cancel-in-progress: false
@@ -47,6 +49,12 @@ jobs:
         run: |
           set -o pipefail
           python3 -u strumenti/opac_sbn.py --minuti 54 2>&1 | tee "$RUNNER_TEMP/opac.log"
+      - name: Giro successivo
+        if: steps.segreti.outputs.ok == 'si'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ -f "$RUNNER_TEMP/continua" ]; then gh workflow run opac-sbn.yml --ref main -R "$GITHUB_REPOSITORY" && echo "giro successivo avviato"; fi
       - name: Registro
         if: always() && steps.segreti.outputs.ok == 'si'
         run: |
