@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Schede complete dall'OPAC SBN (UNIMARC via Z39.50), una richiesta alla volta, di giorno. Tutto nel Drive.
+"""Schede complete dall'OPAC SBN (UNIMARC via Z39.50), una richiesta alla volta. Tutto nel Drive.
 
 Gira ogni ora (.github/workflows/opac-sbn.yml) e riprende sempre da dove era arrivato:
   1. l'ordine dei libri viene dalla selezione nel Drive (cataloghi/Italia/selezione_<data>): prima l'edizione più
@@ -440,8 +440,8 @@ def main():
             try:
                 esiti, dati = scarica_lotto(presi, os.path.join(a.lavoro, 'lotto.mrc'), a.yaz)
             except Fermati as e:
-                # 27/10: dal 26/10 il server rifiuta tutte le ricerche. Niente più attese di 10 minuti dentro il giro né giri
-                # a catena: ci si ferma subito e si riprova al prossimo giro programmato (una volta l'ora, di giorno).
+                # 27/10: se il server non risponde ci si ferma subito, senza attese dentro il giro: il workflow riprova da solo
+                # ogni 10 minuti, a qualunque ora, e quando risponde i giri ripartono a catena.
                 tot['pause'] = tot.get('pause', 0) + 1
                 print(f'{datetime.datetime.now():%H:%M} {e}', flush=True)
                 raise

@@ -1,13 +1,14 @@
 name: opac-sbn
 # Schede complete dall'OPAC SBN (UNIMARC via Z39.50), una richiesta alla volta. Tutto nel Drive (cataloghi/Italia/schede_complete):
 # l'ordine dei libri, cosa è già fatto, le schede, il riepilogo di ogni giro. Riprende sempre da dove era arrivato;
-# se il server non risponde o rifiuta le ricerche si ferma subito e riprova al giro dell'ora dopo (solo di giorno); se va tutto
-# bene, alla fine di ogni giro ne parte subito un altro. Vedi strumenti/opac_sbn.py.
+# se il server non risponde o rifiuta le ricerche si ferma subito e riprova 10 minuti dopo, a qualunque ora; se va tutto
+# bene, alla fine di ogni giro ne parte subito un altro. Sempre un giro alla volta (concurrency). Vedi strumenti/opac_sbn.py.
 # Segreto: RCLONE_CONF (accesso al Drive).
 on:
   schedule:
-    - cron: '7 7-18 * * *'   # 27/10: una volta l'ora, di giorno (08-19 ora italiana d'inverno); se il server risponde,
+    - cron: '*/10 * * * *'   # 27/10 pomeriggio (Paolo): un tentativo ogni 10 minuti, giorno e notte; se il server risponde,
                              # alla fine di ogni giro ne parte subito un altro (passo "Giro successivo"); se rifiuta, ci si ferma
+                             # e si riprova al tentativo dopo. Un giro alla volta: i tentativi che arrivano durante un giro aspettano.
   workflow_dispatch:
   push:                        # per far partire un giro a mano: cambiare avvia/opac.txt
     branches: [main]
