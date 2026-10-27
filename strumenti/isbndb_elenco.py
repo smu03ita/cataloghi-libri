@@ -7,7 +7,8 @@ uniscono le fonti), pulisce i titoli ("(Italian Edition)" e simili) e SEGNA, sen
   autopubblicato editore assente, piattaforme di autopubblicazione, o editore uguale all'autrice
   scolastico     libri di scuola, eserciziari, test e concorsi (editori, soggetti, parole del titolo)
   ristampa       ristampe di massa e stampa su richiesta: editori noti per questo (RISTAMPE) o con più di
-                 TETTO_EDITORE titoli nella raccolta (nessun editore italiano vero ne fa tanti: Mondadori ne ha meno di 5.000)
+                 TETTO_EDITORE titoli nella raccolta (nessun editore italiano vero ne fa tanti: Mondadori ne ha meno di 5.000);
+                 le piattaforme di autopubblicazione no: quelle sono "autopubblicato"
   lingua_it      la lingua della scheda è l'italiano
 Scrive in elenco/:
   isbndb_italia.jsonl.gz     tutti i campi utili per caricarli in Fabula, sinossi compresa
@@ -114,7 +115,9 @@ def main(lavoro):
     elenco = sorted(libri.values(), key=lambda s: (-(s['anno'] or 0), s['titolo'].lower()))
     per_editore = Counter(s['editore'].lower() for s in elenco)
     for s in elenco:
-        s['ristampa'] = bool(RISTAMPE.search(s['editore']) or per_editore[s['editore'].lower()] > TETTO_EDITORE)
+        # gli autopubblicati (KDP, "Independently published") non sono ristampe: restano autopubblicati, che entrano se hanno lettori
+        s['ristampa'] = bool(RISTAMPE.search(s['editore']) or
+                             (per_editore[s['editore'].lower()] > TETTO_EDITORE and not s['autopubblicato']))
 
     arch.scrivi('elenco/isbndb_italia.jsonl.gz', gzip.compress(
         ''.join(json.dumps(s, ensure_ascii=False) + '\n' for s in elenco).encode('utf-8')))
