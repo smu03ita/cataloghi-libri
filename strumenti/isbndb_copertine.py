@@ -376,7 +376,7 @@ def main():
             except Exception as e:
                 print('rinnovo non riuscito per questo gruppo:', senza_segreti(e)[:200], flush=True)
             # controllo di sicurezza: se le prime richieste non danno libri, ci si ferma invece di consumare la quota
-            if chiamate + 1 >= 3 and not riusciti and i // 100 + 1 >= 3:
+            if i // 100 + 1 >= 3 and not riusciti:
                 motivo = 'il rinnovo dei link non restituisce libri (prime 3 richieste): da controllare'
                 break
         for isbn, vecchi in gruppo:
