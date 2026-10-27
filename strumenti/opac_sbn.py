@@ -175,7 +175,7 @@ def scarica_lotto(codici, file_marc, comando='yaz-client'):
     """Restituisce {codice: 'fatta'|'non_trovata'|'errore'} e i byte delle schede UNIMARC del lotto."""
     if os.path.exists(file_marc):
         os.remove(file_marc)
-    esiti, timeout_di_fila = {}, 0
+    esiti, timeout_di_fila, ultimo = {}, 0, ''
     s = Sessione(file_marc, comando)
     try:
         for c in codici:
@@ -195,11 +195,13 @@ def scarica_lotto(codici, file_marc, comando='yaz-client'):
                 esiti[codice] = 'presa'
                 timeout_di_fila = 0
                 time.sleep(PAUSA)
-            except TimeoutError:
+            except TimeoutError as e:
                 esiti[codice] = 'errore'
                 timeout_di_fila += 1
+                ultimo = str(e)[-300:]
                 if timeout_di_fila >= 3:
-                    raise Fermati('il server non risponde (3 volte di fila)')
+                    # 27/10: si scrive anche cosa ha risposto il server, per capire se è un guasto o un blocco
+                    raise Fermati(f'il server non risponde (3 volte di fila) · ultima risposta: {ultimo}')
     finally:
         s.chiudi()   # alla chiusura yaz-client scrive tutte le schede nel file
     # di solito i libri non trovati sono quasi zero: un lotto intero senza niente è il server che non cerca davvero
@@ -438,14 +440,11 @@ def main():
             try:
                 esiti, dati = scarica_lotto(presi, os.path.join(a.lavoro, 'lotto.mrc'), a.yaz)
             except Fermati as e:
-                # server muto (di notte, o un momento di pausa): si aspetta dentro il giro e si riprova lo stesso lotto
+                # 27/10: dal 26/10 il server rifiuta tutte le ricerche. Niente più attese di 10 minuti dentro il giro né giri
+                # a catena: ci si ferma subito e si riprova al prossimo giro programmato (una volta l'ora, di giorno).
                 tot['pause'] = tot.get('pause', 0) + 1
-                pos = inizio_lotto
-                if time.time() + ATTESA > fine - 180:
-                    raise
-                print(f'{datetime.datetime.now():%H:%M} {e}: riprovo tra {ATTESA // 60} minuti', flush=True)
-                time.sleep(ATTESA)
-                continue
+                print(f'{datetime.datetime.now():%H:%M} {e}', flush=True)
+                raise
             schede, per_isbn = {}, {}
             for r in leggi_marc(dati):
                 x = scheda(r)
@@ -490,7 +489,7 @@ def main():
         except Exception as e:
             nota = (nota + ' · ' if nota else '') + senza_segreti(str(e))[:300]
         # il giro successivo parte sempre, tranne a coda finita o per errori veri (Drive, programma)
-        continua = nota == '' or nota.startswith('fermato')
+        continua = nota == ''   # giro successivo subito solo se il giro è finito bene (tempo scaduto lavorando)
         nota = senza_segreti(nota)
         dati = dict(tot, inizio=inizio.isoformat(timespec='seconds'),
                     fine=datetime.datetime.now(datetime.timezone.utc).isoformat(timespec='seconds'), nota=nota or 'ok')
