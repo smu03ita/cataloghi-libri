@@ -350,6 +350,7 @@ def main():
             return
         api = Isbndb(chiave)
     quota = None
+    riusciti = 0
     for i in range(0, len(lista), 100):
         if time.monotonic() > scadenza - 15 * 60:
             motivo = 'tempo del giro finito'
@@ -370,8 +371,14 @@ def main():
             try:
                 nuovi = {isbn_di(x): link_di(x) for x in api.molti([g[0] for g in gruppo])}
                 chiamate += 1
+                if nuovi:
+                    riusciti += 1
             except Exception as e:
                 print('rinnovo non riuscito per questo gruppo:', senza_segreti(e)[:200], flush=True)
+            # controllo di sicurezza: se le prime richieste non danno libri, ci si ferma invece di consumare la quota
+            if chiamate + 1 >= 3 and not riusciti and i // 100 + 1 >= 3:
+                motivo = 'il rinnovo dei link non restituisce libri (prime 3 richieste): da controllare'
+                break
         for isbn, vecchi in gruppo:
             cop.offri(isbn, nuovi.get(isbn) or vecchi)
     else:
