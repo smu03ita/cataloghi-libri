@@ -6,6 +6,8 @@ uniscono le fonti), pulisce i titoli ("(Italian Edition)" e simili) e SEGNA, sen
   romance        soggetti romance/romantasy/new adult, o trovato dalla ricerca dei romance
   autopubblicato editore assente, piattaforme di autopubblicazione, o editore uguale all'autrice
   scolastico     libri di scuola, eserciziari, test e concorsi (editori, soggetti, parole del titolo)
+  ristampa       ristampe di massa e stampa su richiesta: editori noti per questo (RISTAMPE) o con più di
+                 TETTO_EDITORE titoli nella raccolta (nessun editore italiano vero ne fa tanti: Mondadori ne ha meno di 5.000)
   lingua_it      la lingua della scheda è l'italiano
 Scrive in elenco/:
   isbndb_italia.jsonl.gz     tutti i campi utili per caricarli in Fabula, sinossi compresa
@@ -34,8 +36,11 @@ SCUOLA_ED = re.compile(r'zanichelli|loescher|pearson|sanoma|paravia|petrini|latt
                        r'mondadori education|rizzoli education|edises|simone|maggioli|alpha test|hoepli scuola|'
                        r'cetem|ardea|raffaello|elmedi|edizioni il capitello|minerva scuola|bulgarini|'
                        r'garzanti scuola|einaudi scuola|cto editorial', re.I)
+RISTAMPE = re.compile(r'creative media partners|hutson street|legare street|fb&c|forgotten books|1kg limited|antigonos|'
+                      r'linguas classics|grey eagle|blurb|epubli|kessinger|nabu press|wentworth press|alpha editions', re.I)
+TETTO_EDITORE = 5000
 CAMPI_CSV = ['isbn13', 'titolo', 'autori', 'editore', 'anno', 'data', 'pagine', 'rilegatura', 'romance',
-             'autopubblicato', 'scolastico', 'lingua_it', 'con_sinossi', 'soggetti', 'copertina', 'fonti']
+             'autopubblicato', 'scolastico', 'ristampa', 'lingua_it', 'con_sinossi', 'soggetti', 'copertina', 'fonti']
 
 
 def pulisci_titolo(t):
@@ -107,6 +112,9 @@ def main(lavoro):
                 continue
             libri[s['isbn13']] = unisci(libri[s['isbn13']], s) if s['isbn13'] in libri else s
     elenco = sorted(libri.values(), key=lambda s: (-(s['anno'] or 0), s['titolo'].lower()))
+    per_editore = Counter(s['editore'].lower() for s in elenco)
+    for s in elenco:
+        s['ristampa'] = bool(RISTAMPE.search(s['editore']) or per_editore[s['editore'].lower()] > TETTO_EDITORE)
 
     arch.scrivi('elenco/isbndb_italia.jsonl.gz', gzip.compress(
         ''.join(json.dumps(s, ensure_ascii=False) + '\n' for s in elenco).encode('utf-8')))
@@ -115,15 +123,25 @@ def main(lavoro):
     w.writeheader()
     for s in elenco:
         w.writerow({**s, 'autori': '; '.join(s['autori']), 'soggetti': '; '.join(s['soggetti'][:8]), 'fonti': ', '.join(s['fonti']),
-                    **{k: 'sì' if s[k] else '' for k in ('romance', 'autopubblicato', 'scolastico', 'lingua_it', 'con_sinossi')}})
+                    **{k: 'sì' if s[k] else '' for k in ('romance', 'autopubblicato', 'scolastico', 'ristampa', 'lingua_it', 'con_sinossi')}})
     arch.scrivi('elenco/isbndb_italia_elenco.csv', ('﻿' + out.getvalue()).encode('utf-8'))   # BOM: Excel legge gli accenti
 
     rom = [s for s in elenco if s['romance']]
+    # utili: in italiano, non ristampe di massa, non scolastici (gli autopubblicati restano: entrano se hanno lettori)
+    ut = [s for s in elenco if s['lingua_it'] and not s['ristampa'] and not s['scolastico']]
+    ut_rom = [s for s in ut if s['romance']]
     riepilogo = {
         'aggiornato': ora(), 'righe_grezze': righe, 'libri_diversi': len(elenco),
         'con_sinossi': sum(s['con_sinossi'] for s in elenco), 'con_copertina': sum(bool(s['copertina']) for s in elenco),
         'autopubblicati': sum(s['autopubblicato'] for s in elenco), 'scolastici': sum(s['scolastico'] for s in elenco),
         'non_in_italiano': sum(not s['lingua_it'] for s in elenco),
+        'ristampe': sum(s['ristampa'] for s in elenco),
+        'ristampe_editori': sorted({s['editore'] for s in elenco if s['ristampa']}, key=lambda e: -per_editore[e.lower()])[:30],
+        'utili': {'totale': len(ut), 'con_sinossi': sum(s['con_sinossi'] for s in ut), 'con_copertina': sum(bool(s['copertina']) for s in ut),
+                  'autopubblicati': sum(s['autopubblicato'] for s in ut),
+                  'di_editori_con_sinossi': sum(s['con_sinossi'] and not s['autopubblicato'] for s in ut),
+                  'romance': len(ut_rom), 'romance_con_sinossi': sum(s['con_sinossi'] for s in ut_rom),
+                  'romance_di_editori': sum(not s['autopubblicato'] for s in ut_rom)},
         'romance': {'totale': len(rom), 'di_editori': sum(not s['autopubblicato'] for s in rom),
                     'autopubblicati': sum(s['autopubblicato'] for s in rom), 'con_sinossi': sum(s['con_sinossi'] for s in rom),
                     'in_italiano': sum(s['lingua_it'] for s in rom), 'scolastici': sum(s['scolastico'] for s in rom),
