@@ -89,15 +89,16 @@ class Isbndb:
         self.ultima = 0.0
         self.chiamate = 0           # chiamate che contano per la quota (non /key)
 
-    def _get(self, percorso, parametri=None, conta=True):
+    def _get(self, percorso, parametri=None, conta=True, corpo=None):
         url = API + percorso + ('?' + urllib.parse.urlencode(parametri) if parametri else '')
+        dati_post = urllib.parse.urlencode(corpo).encode('utf-8') if corpo else None
         errore = 'errori ripetuti'
         for prova in range(6):
             attesa = self.pausa - (time.monotonic() - self.ultima)
             if attesa > 0:
                 time.sleep(attesa)
             self.ultima = time.monotonic()
-            req = urllib.request.Request(url, headers={'Authorization': self.chiave, 'Accept': 'application/json', 'User-Agent': UA})
+            req = urllib.request.Request(url, data=dati_post, headers={'Authorization': self.chiave, 'Accept': 'application/json', 'User-Agent': UA})
             try:
                 with urllib.request.urlopen(req, timeout=120) as r:
                     dati = json.loads(r.read().decode('utf-8', 'replace') or '{}')
@@ -128,6 +129,11 @@ class Isbndb:
         d = self._get('/key', conta=False)
         lim = d.get('plan_limit') or {}
         return int(lim.get('left', 0)), int(lim.get('total', 0))
+
+    def molti(self, isbns):
+        """Fino a 100 ISBN in una chiamata (piano Basic): le schede di nuovo, con i link delle copertine appena creati."""
+        d = self._get('/books', corpo={'isbns': ','.join(isbns)})
+        return [x for x in (d.get('data') or d.get('books') or []) if isinstance(x, dict)]
 
     def pagina(self, lavoro, n):
         q = urllib.parse.quote(lavoro['q'], safe='')
@@ -268,11 +274,14 @@ class Raccolta:
         self.salva_ogni, self.salva_minuti = salva_ogni, salva_minuti
         self.buffer, self.ultimo_salvataggio = [], time.monotonic()
         self.stato = None
+        self.parti_iniziali = 0
         self.quota = None
+        self.copertine = None      # isbndb_copertine.Copertine: scarica le copertine mentre i link sono validi (2 ore)
 
     def carica(self):
         self.stato = json.loads(self.arch.leggi('stato.json')) if self.arch.esiste('stato.json') else stato_nuovo()
         self.stato['giri'] += 1
+        self.parti_iniziali = self.stato.get('parti', 0)
 
     def salva(self):
         if self.buffer:
@@ -303,6 +312,9 @@ class Raccolta:
             if ed and not autopubblicato(x) and str(x.get('language', '')).lower() in ('ita', 'it', 'italian', 'italiano'):
                 self.stato['editori'][ed] = self.stato['editori'].get(ed, 0) + 1
         self.buffer += libri
+        if self.copertine:
+            for x in libri:
+                self.copertine.offri_scheda(x)
         self.stato['conteggi'][l['fase']] = self.stato['conteggi'].get(l['fase'], 0) + len(libri)
 
     def esegui(self, l):
@@ -373,11 +385,26 @@ def main():
     if not chiave:
         print('Manca il segreto ISBNDB_API_KEY: niente da fare.')
         return
-    r = Raccolta(Isbndb(chiave), Archivio(DEST, a.lavoro), a.minuti)
+    archivio = Archivio(DEST, a.lavoro)
+    r = Raccolta(Isbndb(chiave), archivio, a.minuti)
+    if os.environ.get('COPERTINE', 'si') != 'no':
+        # 27/10: le copertine grandi hanno link che scadono dopo 2 ore: si scaricano subito, mentre la raccolta va avanti
+        import sys
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        from isbndb_copertine import Copertine
+        r.copertine = Copertine(archivio)
     motivo = r.giro()
-    # tempo finito con lavoro ancora da fare e quota disponibile: il workflow fa partire subito un altro giro
+    if r.stato and r.stato.get('parti', 0) > r.parti_iniziali:
+        open(os.path.join(a.lavoro, 'nuovi'), 'w').close()      # il workflow rifà l'elenco pulito solo se serve
+    if r.copertine:
+        print(f'[{ora()}] copertine: finisco quelle in coda', flush=True)
+        print(f'[{ora()}] copertine: {r.copertine.chiudi(r.scadenza + 15 * 60)}', flush=True)
+    # tempo finito con lavoro ancora da fare e quota disponibile: il workflow fa partire subito un altro giro;
+    # quota del giorno finita: il workflow riprova tra un'ora (non si conta sui tentativi programmati, che GitHub salta)
     if motivo == 'tempo del giro finito':
         open(os.path.join(a.lavoro, 'continua'), 'w').close()
+    elif 'quasi finite' in motivo:
+        open(os.path.join(a.lavoro, 'riprova'), 'w').close()
 
 
 if __name__ == '__main__':

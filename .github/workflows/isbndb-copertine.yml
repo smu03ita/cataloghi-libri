@@ -1,9 +1,11 @@
 name: isbndb-copertine
-# Copertine dei libri raccolti da ISBNdb, scaricate dai link dell'elenco pulito e salvate nel Drive
-# (cataloghi/Italia/isbndb/copertine): pacchetti .tar da 2.000 immagini e indici. Vedi strumenti/isbndb_copertine.py.
+# Copertine grandi dei libri già raccolti da ISBNdb: si chiedono di nuovo a ISBNdb 100 libri per chiamata (i link delle
+# copertine grandi scadono dopo 2 ore) e si scaricano subito nel Drive (cataloghi/Italia/isbndb/copertine): pacchetti
+# .tar da 2.000 immagini e indici. Vedi strumenti/isbndb_copertine.py. I libri nuovi le prendono già durante la raccolta.
 # Condizioni ISBNdb: si possono tenere solo finché l'abbonamento è attivo.
-# Riprende sempre da dove era arrivato; a tempo finito parte subito un altro giro, finché le copertine sono finite.
-# Segreto: RCLONE_CONF (accesso al Drive).
+# Riprende sempre da dove era arrivato; a tempo finito parte subito un altro giro; a quota del giorno finita riprova
+# da solo ogni ora. Si ferma quando tutti i libri sono stati provati.
+# Segreti: ISBNDB_API_KEY, RCLONE_CONF.
 on:
   workflow_dispatch:
 permissions:
@@ -21,14 +23,16 @@ jobs:
         id: segreti
         env:
           RCLONE_CONF: ${{ secrets.RCLONE_CONF }}
+          ISBNDB_API_KEY: ${{ secrets.ISBNDB_API_KEY }}
         run: |
-          if [ -z "$RCLONE_CONF" ]; then echo "::notice::Manca il segreto RCLONE_CONF: niente da fare."; echo "ok=no" >> "$GITHUB_OUTPUT"
+          if [ -z "$RCLONE_CONF" ] || [ -z "$ISBNDB_API_KEY" ]; then echo "::notice::Manca un segreto: niente da fare."; echo "ok=no" >> "$GITHUB_OUTPUT"
           else echo "ok=si" >> "$GITHUB_OUTPUT"; fi
       - uses: actions/checkout@v4
         if: steps.segreti.outputs.ok == 'si'
       - name: Strumenti
         if: steps.segreti.outputs.ok == 'si'
         run: |
+          date +%s > "$RUNNER_TEMP/inizio"
           curl -s https://rclone.org/install.sh | sudo bash > /dev/null
           pip install -q pillow
       - name: Accesso al Drive
@@ -38,15 +42,24 @@ jobs:
         run: python3 strumenti/rclone_conf.py
       - name: Copertine
         if: steps.segreti.outputs.ok == 'si'
+        env:
+          ISBNDB_API_KEY: ${{ secrets.ISBNDB_API_KEY }}
+          RISERVA: '300'           # chiamate lasciate agli altri lavori
         run: |
           set -o pipefail
-          python3 -u strumenti/isbndb_copertine.py --minuti 330 2>&1 | tee "$RUNNER_TEMP/copertine.log"
+          python3 -u strumenti/isbndb_copertine.py --modo rinnova --minuti 320 2>&1 | tee "$RUNNER_TEMP/copertine.log"
       - name: Giro successivo
         if: steps.segreti.outputs.ok == 'si'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          if [ -f "$RUNNER_TEMP/continua" ]; then gh workflow run isbndb-copertine.yml --ref main -R "$GITHUB_REPOSITORY" && echo "giro successivo avviato"; fi
+          if [ -f "$RUNNER_TEMP/continua" ]; then gh workflow run isbndb-copertine.yml --ref main -R "$GITHUB_REPOSITORY" && echo "giro successivo avviato"
+          elif [ -f "$RUNNER_TEMP/riprova" ]; then
+            passati=$(( $(date +%s) - $(cat "$RUNNER_TEMP/inizio") )); attesa=$(( 355 * 60 - passati - 600 ))
+            [ $attesa -gt 3600 ] && attesa=3600
+            if [ $attesa -gt 0 ]; then echo "quota finita: riprovo tra $((attesa / 60)) minuti"; sleep $attesa; fi
+            gh workflow run isbndb-copertine.yml --ref main -R "$GITHUB_REPOSITORY" && echo "nuovo tentativo avviato"
+          fi
       - name: Registro
         if: always() && steps.segreti.outputs.ok == 'si'
         run: |

@@ -38,7 +38,8 @@ SCUOLA_ED = re.compile(r'zanichelli|loescher|pearson|sanoma|paravia|petrini|latt
                        r'cetem|ardea|raffaello|elmedi|edizioni il capitello|minerva scuola|bulgarini|'
                        r'garzanti scuola|einaudi scuola|cto editorial', re.I)
 RISTAMPE = re.compile(r'creative media partners|hutson street|legare street|fb&c|forgotten books|1kg limited|antigonos|'
-                      r'linguas classics|grey eagle|blurb|epubli|kessinger|nabu press|wentworth press|alpha editions', re.I)
+                      r'linguas classics|grey eagle|blurb|epubli|kessinger|nabu press|wentworth press|alpha editions|'
+                      r'edizioni sapienza|vanda ?e?publishing|writers republic', re.I)
 TETTO_EDITORE = 5000
 CAMPI_CSV = ['isbn13', 'titolo', 'autori', 'editore', 'anno', 'data', 'pagine', 'rilegatura', 'romance',
              'autopubblicato', 'scolastico', 'ristampa', 'lingua_it', 'con_sinossi', 'soggetti', 'copertina', 'fonti']

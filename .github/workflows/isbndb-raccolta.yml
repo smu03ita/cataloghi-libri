@@ -2,7 +2,8 @@ name: isbndb-raccolta
 # Libri in italiano da ISBNdb per Fabula: tutti i romance, poi le novità dal 2024 e a ritroso. Tutto nel Drive
 # (cataloghi/Italia/isbndb): grezzi, stato per riprendere, elenco pulito (JSONL e CSV) e riepilogo. Vedi strumenti/isbndb_raccolta.py.
 # Il piano Basic ha 5.000 chiamate al giorno, condivise con gli altri lavori: a quota quasi finita il giro si ferma e
-# riprende al giro programmato successivo; a tempo finito ne parte subito un altro.
+# il lavoro riprova da solo ogni ora finché la quota torna disponibile; a tempo finito ne parte subito un altro.
+# Dal 27/10 scarica anche le copertine grandi dei libri utili mentre raccoglie (strumenti/isbndb_copertine.py).
 # Segreti: ISBNDB_API_KEY (chiave ISBNdb), RCLONE_CONF (accesso al Drive).
 on:
   schedule:
@@ -35,7 +36,10 @@ jobs:
         if: steps.segreti.outputs.ok == 'si'
       - name: Strumenti
         if: steps.segreti.outputs.ok == 'si'
-        run: curl -s https://rclone.org/install.sh | sudo bash > /dev/null
+        run: |
+          date +%s > "$RUNNER_TEMP/inizio"
+          curl -s https://rclone.org/install.sh | sudo bash > /dev/null
+          pip install -q pillow
       - name: Accesso al Drive
         if: steps.segreti.outputs.ok == 'si'
         env:
@@ -47,18 +51,28 @@ jobs:
           ISBNDB_API_KEY: ${{ secrets.ISBNDB_API_KEY }}
           RISERVA: '300'           # chiamate lasciate agli altri lavori (scheda dei libri dell'app)
           ANNO_MINIMO: '2000'      # fin dove andare a ritroso
+          COPERTINE: 'si'          # 27/10: copertine grandi scaricate subito, mentre i link sono validi (2 ore)
         run: |
           set -o pipefail
-          python3 -u strumenti/isbndb_raccolta.py --minuti 320 2>&1 | tee "$RUNNER_TEMP/isbndb.log"
+          python3 -u strumenti/isbndb_raccolta.py --minuti 300 2>&1 | tee "$RUNNER_TEMP/isbndb.log"
       - name: Elenco pulito
         if: always() && steps.segreti.outputs.ok == 'si'
-        run: python3 -u strumenti/isbndb_elenco.py 2>&1 | tee -a "$RUNNER_TEMP/isbndb.log"
+        run: |
+          # solo se il giro ha salvato libri nuovi (i tentativi a quota finita non ne salvano)
+          if [ -f "$RUNNER_TEMP/isbndb/nuovi" ]; then python3 -u strumenti/isbndb_elenco.py 2>&1 | tee -a "$RUNNER_TEMP/isbndb.log"; fi
       - name: Giro successivo
         if: steps.segreti.outputs.ok == 'si'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          if [ -f "$RUNNER_TEMP/isbndb/continua" ]; then gh workflow run isbndb-raccolta.yml --ref main -R "$GITHUB_REPOSITORY" && echo "giro successivo avviato"; fi
+          if [ -f "$RUNNER_TEMP/isbndb/continua" ]; then gh workflow run isbndb-raccolta.yml --ref main -R "$GITHUB_REPOSITORY" && echo "giro successivo avviato"
+          elif [ -f "$RUNNER_TEMP/isbndb/riprova" ]; then
+            # quota del giorno finita: si riprova tra un'ora (al massimo), senza contare sui tentativi programmati che GitHub salta
+            passati=$(( $(date +%s) - $(cat "$RUNNER_TEMP/inizio") )); attesa=$(( 355 * 60 - passati - 600 ))
+            [ $attesa -gt 3600 ] && attesa=3600
+            if [ $attesa -gt 0 ]; then echo "quota finita: riprovo tra $((attesa / 60)) minuti"; sleep $attesa; fi
+            gh workflow run isbndb-raccolta.yml --ref main -R "$GITHUB_REPOSITORY" && echo "nuovo tentativo avviato"
+          fi
       - name: Registro
         if: always() && steps.segreti.outputs.ok == 'si'
         run: |

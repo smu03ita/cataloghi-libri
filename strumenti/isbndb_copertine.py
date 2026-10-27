@@ -1,33 +1,38 @@
 #!/usr/bin/env python3
-"""Copertine dei libri raccolti da ISBNdb, scaricate dai link dell'elenco e salvate nel Drive.
+"""Copertine dei libri di ISBNdb, salvate nel Drive (DESTINAZIONE/copertine).
 
 Condizioni di ISBNdb (lette il 27/10/2026): i dati si possono conservare solo finché l'abbonamento è attivo; se lo si
 disdice vanno cancellati, copertine comprese.
 
-Quali libri: quelli utili dell'elenco pulito (isbndb_elenco.py): in italiano, non ristampe di massa, non scolastici.
-Prima quelli di editori, poi gli autopubblicati; dentro ogni gruppo dal più nuovo.
-Per ogni libro si prova il link grande ("image_original", che può essere scaduto) e poi quello normale ("image").
+I link delle copertine grandi ("image_original") scadono 2 ore dopo la richiesta a ISBNdb; quelli piccoli ("image",
+circa 220 px) no. Per avere le grandi bisogna scaricarle subito. Due modi:
+  - durante la raccolta (isbndb_raccolta.py usa la classe Copertine): ogni libro utile appena arrivato va in coda e
+    viene scaricato in sottofondo, senza chiamate in più;
+  - rinnovo (questo programma, --modo rinnova): per i libri già raccolti si chiedono di nuovo a ISBNdb 100 libri per
+    chiamata, così i link sono freschi, e si scaricano subito. Usa la quota del giorno e si ferma alla riserva.
+  - solo link (--modo link): i link già salvati nell'elenco, senza chiamate (le grandi di solito sono scadute).
+
+Libri utili: in italiano, non ristampe di massa, non scolastici. Nel rinnovo: prima gli editori, poi gli
+autopubblicati, dal più nuovo.
 L'immagine deve aprirsi, essere larga almeno MIN_LARGHEZZA e non essere un segnaposto (la stessa immagine per tanti
 libri). Si riduce a LARGHEZZA px di larghezza al massimo (JPEG) e va in un pacchetto .tar da PACCHETTO copertine.
 
-Nel Drive (DESTINAZIONE/copertine):
-  pacchetti/copertine_NNNNN.tar   le immagini, una per libro: <isbn13>.jpg
-  indici/indice_NNNNN.tsv         isbn, esito, larghezza, altezza, byte, impronta, link usato
-Ogni giro riprende da quello che risulta negli indici. Prima di iniziare, e a ogni pacchetto, controlla lo spazio
-libero nel Drive e si ferma sotto MIN_LIBERO_GB.
+Nel Drive:
+  copertine/pacchetti/copertine_NNNNN.tar   le immagini, una per libro: <isbn13>.jpg
+  copertine/indici/indice_NNNNN.tsv         isbn, esito, larghezza, altezza, byte, impronta, link usato
+Un libro con la copertina grande (o larga almeno 400 px) non si rifà; quelle piccole sì, al rinnovo. Se nel Drive restano meno di MIN_LIBERO_GB ci si ferma.
 Regole: etichetta neutra, al massimo PARALLELI scaricamenti insieme con una pausa, stop su errori ripetuti.
-Segreto: RCLONE_CONF (Drive). Non serve la chiave di ISBNdb: i link delle copertine sono pubblici.
+Segreti: RCLONE_CONF (Drive); ISBNDB_API_KEY solo per il rinnovo.
 """
 import argparse
 import collections
-import concurrent.futures as cf
 import gzip
 import hashlib
 import io
 import json
 import os
+import queue
 import re
-import subprocess
 import sys
 import tarfile
 import threading
@@ -38,15 +43,16 @@ import urllib.request
 from PIL import Image
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from isbndb_raccolta import DEST, Archivio, ora, senza_segreti  # noqa: E402
+from isbndb_raccolta import DEST, RISERVA, Archivio, Isbndb, ora, senza_segreti  # noqa: E402
+from isbndb_elenco import RISTAMPE, scheda as scheda_elenco  # noqa: E402
 
 UA = 'Mozilla/5.0 (compatible; catalog-check/1.0)'
-PARALLELI = int(os.environ.get('PARALLELI', '8'))
-PAUSA = float(os.environ.get('PAUSA', '0.25'))        # secondi tra due scaricamenti sulla stessa linea
+PARALLELI = int(os.environ.get('PARALLELI', '12'))
+PAUSA = float(os.environ.get('PAUSA_IMMAGINI', '0.2'))   # secondi tra due scaricamenti sulla stessa linea
 PACCHETTO = 2000
 LARGHEZZA = 600
 MIN_LARGHEZZA = 120
-SEGNAPOSTO = 3                                         # la stessa immagine per 3 libri o più: segnaposto
+SEGNAPOSTO = 3                                            # la stessa immagine per 3 libri o più: segnaposto
 MIN_LIBERO_GB = float(os.environ.get('MIN_LIBERO_GB', '3'))
 ERRORI_DI_FILA = 200
 
@@ -55,6 +61,23 @@ class Fermati(Exception):
     pass
 
 
+# ---------------------------------------------------------------- quali libri, quali link
+def utile(x):
+    """Scheda grezza di ISBNdb: in italiano, non ristampa di massa, non scolastica, ISBN valido."""
+    s = scheda_elenco(x)
+    return (bool(re.fullmatch(r'97[89]\d{10}', s['isbn13'])) and s['lingua_it'] and not s['scolastico']
+            and not RISTAMPE.search(s['editore']))
+
+
+def link_di(x):
+    return [u for u in dict.fromkeys([x.get('image_original'), x.get('image')]) if u]
+
+
+def isbn_di(x):
+    return str(x.get('isbn13') or x.get('isbn') or '').replace('-', '').strip()
+
+
+# ---------------------------------------------------------------- Drive
 def spazio_libero_gb(arch):
     if arch.locale:
         return None
@@ -63,9 +86,7 @@ def spazio_libero_gb(arch):
     except Exception as e:
         print('spazio nel Drive non letto:', senza_segreti(e), flush=True)
         return None
-    if d.get('free') is None:
-        return None
-    return d['free'] / 1e9
+    return d['free'] / 1e9 if d.get('free') is not None else None
 
 
 def elenca(arch, cartella):
@@ -79,6 +100,7 @@ def elenca(arch, cartella):
 
 
 def gia_fatti(arch):
+    """Libri con la copertina già salvata (esito ok) e l'ultimo numero di pacchetto usato."""
     fatti, n = set(), 0
     for nome in elenca(arch, 'copertine/indici'):
         m = re.match(r'indice_(\d+)\.tsv$', nome)
@@ -87,28 +109,36 @@ def gia_fatti(arch):
         n = max(n, int(m.group(1)))
         for riga in arch.leggi(f'copertine/indici/{nome}').decode('utf-8').split('\n')[1:]:
             p = riga.split('\t')
-            if p and p[0]:
+            # fatta = copertina grande (link "original") o comunque larga almeno 400 px; le piccole si rifanno col rinnovo
+            if len(p) > 6 and p[1] == 'ok' and ('/original/' in p[6] or int(p[2] or 0) >= 400):
                 fatti.add(p[0])
     return fatti, n
 
 
-def da_fare(arch, fatti):
-    """[(isbn, [link...])] nell'ordine: prima editori, poi autopubblicati; dal più nuovo."""
-    righe = gzip.decompress(arch.leggi('elenco/isbndb_italia.jsonl.gz')).decode('utf-8').split('\n')
-    libri = []
-    for r in righe:
-        if not r.strip():
-            continue
-        s = json.loads(r)
-        if not s.get('lingua_it') or s.get('ristampa') or s.get('scolastico') or s['isbn13'] in fatti:
-            continue
-        link = [u for u in dict.fromkeys([s.get('copertina'), s.get('copertina_base')]) if u]
-        if link:
-            libri.append((bool(s.get('autopubblicato')), -(s.get('anno') or 0), s['isbn13'], link))
-    libri.sort()
-    return [(isbn, link) for _, _, isbn, link in libri]
+def salva_pacchetto(arch, numero, risultati, impronte):
+    nome = f'{numero:05d}'
+    tar_b = io.BytesIO()
+    righe = ['isbn\tesito\tlarghezza\taltezza\tbyte\timpronta\tlink']
+    esiti = collections.Counter()
+    with tarfile.open(fileobj=tar_b, mode='w') as t:
+        for isbn, esito, w, h, jpeg, impronta, url in risultati:
+            if esito == 'ok' and impronte[impronta] >= SEGNAPOSTO:
+                esito, jpeg = 'segnaposto', None
+            if esito == 'ok':
+                info = tarfile.TarInfo(f'{isbn}.jpg')
+                info.size = len(jpeg)
+                info.mtime = int(time.time())
+                t.addfile(info, io.BytesIO(jpeg))
+            esiti[esito] += 1
+            righe.append('\t'.join(str(x) for x in (isbn, esito, w, h, len(jpeg) if jpeg else 0, impronta, url.split('?')[0])))
+    # prima il pacchetto, poi l'indice: un libro risulta fatto solo se la sua immagine è già nel Drive
+    if esiti['ok']:
+        arch.scrivi(f'copertine/pacchetti/copertine_{nome}.tar', tar_b.getvalue())
+    arch.scrivi(f'copertine/indici/indice_{nome}.tsv', ('\n'.join(righe) + '\n').encode('utf-8'))
+    return esiti, len(tar_b.getvalue()) if esiti['ok'] else 0
 
 
+# ---------------------------------------------------------------- scaricamento
 class Scaricatore:
     def __init__(self):
         self.lock = threading.Lock()
@@ -127,16 +157,13 @@ class Scaricatore:
             except urllib.error.HTTPError as e:
                 if e.code in (400, 401, 403, 404, 410):
                     return None, f'http_{e.code}'        # link scaduto o immagine assente: si prova l'altro link
-                if e.code == 429:
-                    time.sleep(30 * (prova + 1))
-                    continue
-                time.sleep(5 * (prova + 1))
+                time.sleep((30 if e.code == 429 else 5) * (prova + 1))
             except Exception:
                 time.sleep(5 * (prova + 1))
         return None, 'errore'
 
     def libro(self, isbn, link):
-        """(isbn, esito, larghezza, altezza, jpeg o None, impronta, link usato)"""
+        """(isbn, esito, larghezza, altezza, jpeg o None, impronta, link usato); None se fermato."""
         ultimo = 'errore'
         for url in link:
             time.sleep(PAUSA)
@@ -169,93 +196,198 @@ class Scaricatore:
             if ultimo == 'errore':
                 self.errori_di_fila += 1
                 if self.errori_di_fila >= ERRORI_DI_FILA:
-                    self.motivo = f'{ERRORI_DI_FILA} errori di rete di fila: mi fermo'
+                    self.motivo = f'{ERRORI_DI_FILA} errori di rete di fila'
                     self.ferma.set()
         return isbn, ultimo, 0, 0, None, '', ''
 
 
-def salva_pacchetto(arch, numero, risultati, impronte):
-    nome = f'{numero:05d}'
-    tar_b = io.BytesIO()
-    righe = ['isbn\tesito\tlarghezza\taltezza\tbyte\timpronta\tlink']
-    n_ok = 0
-    with tarfile.open(fileobj=tar_b, mode='w') as t:
-        for isbn, esito, w, h, jpeg, impronta, url in risultati:
-            if esito == 'ok' and impronte[impronta] >= SEGNAPOSTO:
-                esito, jpeg = 'segnaposto', None
-            if esito == 'ok':
-                info = tarfile.TarInfo(f'{isbn}.jpg')
-                info.size = len(jpeg)
-                info.mtime = int(time.time())
-                t.addfile(info, io.BytesIO(jpeg))
-                n_ok += 1
-            righe.append('\t'.join(str(x) for x in (isbn, esito, w, h, len(jpeg) if jpeg else 0, impronta, url)))
-    # prima il pacchetto, poi l'indice: un libro risulta fatto solo se la sua immagine è già nel Drive
-    if n_ok:
-        arch.scrivi(f'copertine/pacchetti/copertine_{nome}.tar', tar_b.getvalue())
-    arch.scrivi(f'copertine/indici/indice_{nome}.tsv', ('\n'.join(righe) + '\n').encode('utf-8'))
-    return n_ok, len(tar_b.getvalue())
+class Copertine:
+    """Scarica in sottofondo le copertine dei libri che riceve (offri) e le salva a pacchetti nel Drive."""
+
+    def __init__(self, arch, paralleli=PARALLELI):
+        self.arch = arch
+        self.fatti, self.numero = gia_fatti(arch)
+        self.visti = set()
+        self.q = queue.Queue()
+        self.s = Scaricatore()
+        self.lock = threading.Lock()
+        self.risultati = []
+        self.impronte = collections.Counter()
+        self.tot = collections.Counter()
+        self.peso = 0
+        self.spazio_ok = True
+        libero = spazio_libero_gb(arch)
+        if libero is not None:
+            print(f'copertine: {libero:.1f} GB liberi nel Drive, {len(self.fatti):,} copertine già salvate', flush=True)
+            self.spazio_ok = libero >= MIN_LIBERO_GB
+        self.fili = [threading.Thread(target=self._lavora, daemon=True) for _ in range(paralleli)]
+        for f in self.fili:
+            f.start()
+
+    def offri(self, isbn, link):
+        if not self.spazio_ok or not isbn or not link or isbn in self.fatti or isbn in self.visti:
+            return
+        self.visti.add(isbn)
+        self.q.put((isbn, link))
+
+    def offri_scheda(self, x):
+        try:
+            if utile(x):
+                self.offri(isbn_di(x), link_di(x))
+        except Exception:
+            pass
+
+    def _lavora(self):
+        while True:
+            lavoro = self.q.get()
+            try:
+                if lavoro is None:
+                    return
+                if self.s.ferma.is_set():
+                    continue
+                r = self.s.libro(*lavoro)
+                if not r:
+                    continue
+                pronti = None
+                with self.lock:
+                    self.risultati.append(r)
+                    if r[1] == 'ok':
+                        self.impronte[r[5]] += 1
+                    if len(self.risultati) >= PACCHETTO:
+                        pronti, self.risultati = self.risultati, []
+                        self.numero += 1
+                        numero = self.numero
+                if pronti:
+                    self._salva(numero, pronti)
+            except Exception as e:
+                print('copertine: errore', senza_segreti(e)[:200], flush=True)
+            finally:
+                self.q.task_done()
+
+    def _salva(self, numero, pronti):
+        esiti, byte = salva_pacchetto(self.arch, numero, pronti, self.impronte)
+        with self.lock:
+            self.tot.update(esiti)
+            self.peso += byte
+            for r in pronti:
+                if r[1] == 'ok':
+                    self.fatti.add(r[0])
+        print(f'[{ora()}] copertine: pacchetto {numero}, {esiti["ok"]} su {len(pronti)} · in coda {self.q.qsize():,} · '
+              f'totale {dict(self.tot)} · {self.peso / 1e6:.0f} MB', flush=True)
+        if numero % 10 == 0:
+            libero = spazio_libero_gb(self.arch)
+            if libero is not None and libero < MIN_LIBERO_GB:
+                self.spazio_ok = False
+                self.s.motivo = f'restano {libero:.1f} GB liberi nel Drive'
+                self.s.ferma.set()
+
+    def in_coda(self):
+        return self.q.unfinished_tasks
+
+    def chiudi(self, scadenza):
+        """Aspetta che la coda si svuoti (fino a scadenza, tempo monotonic), poi salva l'ultimo pacchetto."""
+        while self.q.unfinished_tasks and time.monotonic() < scadenza and not self.s.ferma.is_set():
+            time.sleep(2)
+        rimasti = self.q.unfinished_tasks
+        self.s.ferma.set()                     # i libri ancora in coda non si scaricano: li riprende il rinnovo
+        for _ in self.fili:
+            self.q.put(None)
+        for f in self.fili:
+            f.join(timeout=120)
+        with self.lock:
+            pronti, self.risultati = self.risultati, []
+            if pronti:
+                self.numero += 1
+            numero = self.numero
+        if pronti:
+            self._salva(numero, pronti)
+        return {'esiti': dict(self.tot), 'MB': round(self.peso / 1e6), 'non_fatti': rimasti,
+                'nota': self.s.motivo or ('' if self.spazio_ok else 'poco spazio nel Drive')}
+
+
+# ---------------------------------------------------------------- libri già raccolti
+def da_fare(arch, fatti):
+    """[(isbn, [link...])] dei libri utili dell'elenco senza copertina: prima editori, poi autopubblicati; dal più nuovo."""
+    righe = gzip.decompress(arch.leggi('elenco/isbndb_italia.jsonl.gz')).decode('utf-8').split('\n')
+    libri = []
+    for r in righe:
+        if not r.strip():
+            continue
+        s = json.loads(r)
+        if not s.get('lingua_it') or s.get('ristampa') or s.get('scolastico') or s['isbn13'] in fatti:
+            continue
+        link = [u for u in dict.fromkeys([s.get('copertina'), s.get('copertina_base')]) if u]
+        libri.append((bool(s.get('autopubblicato')), -(s.get('anno') or 0), s['isbn13'], link))
+    libri.sort()
+    return [(isbn, link) for _, _, isbn, link in libri]
 
 
 def main():
     ap = argparse.ArgumentParser()
+    ap.add_argument('--modo', choices=('rinnova', 'link'), default='rinnova')
     ap.add_argument('--minuti', type=float, default=320)
     ap.add_argument('--massimo', type=int, default=0, help='prova: al massimo questi libri')
     ap.add_argument('--lavoro', default=os.path.join(os.environ.get('RUNNER_TEMP', '/tmp'), 'copertine'))
     a = ap.parse_args()
     scadenza = time.monotonic() + a.minuti * 60
     arch = Archivio(DEST, a.lavoro)
-    tot = collections.Counter()
-    motivo, rimasti = '', 0
-    libero = spazio_libero_gb(arch)
-    if libero is not None:
-        print(f'spazio libero nel Drive: {libero:.1f} GB', flush=True)
-        if libero < MIN_LIBERO_GB:
-            print(f'::notice title=copertine::meno di {MIN_LIBERO_GB} GB liberi nel Drive: non scarico niente', flush=True)
-            return
-    fatti, numero = gia_fatti(arch)
-    lista = da_fare(arch, fatti)
+    cop = Copertine(arch)
+    if not cop.spazio_ok:
+        print(f'::notice title=copertine::meno di {MIN_LIBERO_GB} GB liberi nel Drive: non scarico niente', flush=True)
+        cop.chiudi(time.monotonic())
+        return
+    lista = da_fare(arch, cop.fatti)
     if a.massimo:
         lista = lista[:a.massimo]
-    print(f'{len(fatti):,} libri già fatti, {len(lista):,} da fare', flush=True)
-    s = Scaricatore()
-    impronte = collections.Counter()
-    peso = 0
-    try:
-        with cf.ThreadPoolExecutor(PARALLELI) as ex:
-            for i in range(0, len(lista), PACCHETTO):
-                if time.monotonic() > scadenza - 600:
-                    motivo = 'tempo del giro finito'
-                    break
-                gruppo = lista[i:i + PACCHETTO]
-                risultati = [r for r in ex.map(lambda x: s.libro(*x), gruppo) if r]
-                for r in risultati:
-                    if r[1] == 'ok':
-                        impronte[r[5]] += 1
-                numero += 1
-                n_ok, byte = salva_pacchetto(arch, numero, risultati, impronte)
-                peso += byte
-                for r in risultati:
-                    tot[r[1]] += 1
-                tot['segnaposto'] += sum(1 for r in risultati if r[1] == 'ok') - n_ok
-                tot['ok'] -= sum(1 for r in risultati if r[1] == 'ok') - n_ok
-                print(f'[{ora()}] pacchetto {numero}: {n_ok} copertine su {len(gruppo)} · totale {dict(tot)} · '
-                      f'{peso / 1e6:.0f} MB', flush=True)
-                if s.ferma.is_set():
-                    raise Fermati(s.motivo)
-                if numero % 10 == 0:
-                    libero = spazio_libero_gb(arch)
-                    if libero is not None and libero < MIN_LIBERO_GB:
-                        raise Fermati(f'restano {libero:.1f} GB liberi nel Drive: mi fermo')
-            else:
-                motivo = 'finito: tutte le copertine provate'
-    except Fermati as e:
-        motivo = str(e)
-    rimasti = max(0, len(lista) - sum(tot.values()))
-    print(f'[{ora()}] fine giro: {motivo}. Esiti: {dict(tot)}. Rimasti: {rimasti:,}. Peso: {peso / 1e6:.0f} MB', flush=True)
-    print(f'::notice title=copertine::{tot["ok"]} copertine salvate ({peso / 1e6:.0f} MB) · rimasti {rimasti:,} · {motivo}', flush=True)
-    if motivo == 'tempo del giro finito' and not a.massimo:
-        open(os.path.join(os.environ.get('RUNNER_TEMP', '/tmp'), 'continua'), 'w').close()
+    print(f'{len(lista):,} libri senza copertina, modo {a.modo}', flush=True)
+    motivo, chiamate = '', 0
+    api = None
+    if a.modo == 'rinnova':
+        chiave = os.environ.get('ISBNDB_API_KEY', '').strip()
+        if not chiave:
+            print('Manca il segreto ISBNDB_API_KEY: niente da fare.')
+            cop.chiudi(time.monotonic())
+            return
+        api = Isbndb(chiave)
+    quota = None
+    for i in range(0, len(lista), 100):
+        if time.monotonic() > scadenza - 15 * 60:
+            motivo = 'tempo del giro finito'
+            break
+        if cop.s.ferma.is_set():
+            motivo = cop.s.motivo
+            break
+        while cop.in_coda() > 1500 and not cop.s.ferma.is_set():   # i link freschi si usano subito: non si va avanti troppo
+            time.sleep(1)
+        gruppo = lista[i:i + 100]
+        nuovi = {}
+        if api:
+            if quota is None or api.chiamate - quota[1] >= 50:
+                quota = (api.rimaste()[0], api.chiamate)
+            if quota[0] - (api.chiamate - quota[1]) < RISERVA:
+                motivo = f'chiamate ISBNdb di oggi quasi finite (riserva {RISERVA})'
+                break
+            try:
+                nuovi = {isbn_di(x): link_di(x) for x in api.molti([g[0] for g in gruppo])}
+                chiamate += 1
+            except Exception as e:
+                print('rinnovo non riuscito per questo gruppo:', senza_segreti(e)[:200], flush=True)
+        for isbn, vecchi in gruppo:
+            cop.offri(isbn, nuovi.get(isbn) or vecchi)
+    else:
+        motivo = 'finito: tutti i libri provati'
+    riepilogo = cop.chiudi(scadenza)
+    fatti_ora = sum(riepilogo['esiti'].values())
+    print(f'[{ora()}] fine giro: {motivo}. Chiamate ISBNdb: {chiamate}. Copertine: {riepilogo}', flush=True)
+    print(f'::notice title=copertine::{riepilogo["esiti"].get("ok", 0)} copertine salvate ({riepilogo["MB"]} MB) su {fatti_ora} '
+          f'provate · {chiamate} chiamate · {motivo}', flush=True)
+    temp = os.environ.get('RUNNER_TEMP', a.lavoro)
+    if a.massimo:
+        return
+    if motivo == 'tempo del giro finito':
+        open(os.path.join(temp, 'continua'), 'w').close()
+    elif 'quasi finite' in motivo:
+        open(os.path.join(temp, 'riprova'), 'w').close()
 
 
 if __name__ == '__main__':
