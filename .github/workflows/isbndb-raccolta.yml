@@ -1,0 +1,68 @@
+name: isbndb-raccolta
+# Libri in italiano da ISBNdb per Fabula: tutti i romance, poi le novità dal 2024 e a ritroso. Tutto nel Drive
+# (cataloghi/Italia/isbndb): grezzi, stato per riprendere, elenco pulito (JSONL e CSV) e riepilogo. Vedi strumenti/isbndb_raccolta.py.
+# Il piano Basic ha 5.000 chiamate al giorno, condivise con gli altri lavori: a quota quasi finita il giro si ferma e
+# riprende al giro programmato successivo; a tempo finito ne parte subito un altro.
+# Segreti: ISBNDB_API_KEY (chiave ISBNdb), RCLONE_CONF (accesso al Drive).
+on:
+  schedule:
+    - cron: '41 5,17 * * *'      # due volte al giorno: riprende quando la quota del giorno è di nuovo disponibile
+  workflow_dispatch:
+  push:                          # per far partire un giro a mano: cambiare avvia/isbndb.txt
+    branches: [main]
+    paths: ['avvia/isbndb.txt']
+permissions:
+  contents: read
+  actions: write                 # per far partire il giro successivo
+concurrency:
+  group: isbndb-raccolta
+  cancel-in-progress: false
+jobs:
+  raccolta:
+    runs-on: ubuntu-latest
+    timeout-minutes: 355
+    steps:
+      - name: Controllo dei segreti
+        id: segreti
+        env:
+          ISBNDB_API_KEY: ${{ secrets.ISBNDB_API_KEY }}
+          RCLONE_CONF: ${{ secrets.RCLONE_CONF }}
+        run: |
+          if [ -z "$ISBNDB_API_KEY" ]; then echo "::notice::Manca il segreto ISBNDB_API_KEY: niente da fare."; echo "ok=no" >> "$GITHUB_OUTPUT"
+          elif [ -z "$RCLONE_CONF" ]; then echo "::notice::Manca il segreto RCLONE_CONF: niente da fare."; echo "ok=no" >> "$GITHUB_OUTPUT"
+          else echo "ok=si" >> "$GITHUB_OUTPUT"; fi
+      - uses: actions/checkout@v4
+        if: steps.segreti.outputs.ok == 'si'
+      - name: Strumenti
+        if: steps.segreti.outputs.ok == 'si'
+        run: curl -s https://rclone.org/install.sh | sudo bash > /dev/null
+      - name: Accesso al Drive
+        if: steps.segreti.outputs.ok == 'si'
+        env:
+          RCLONE_CONF: ${{ secrets.RCLONE_CONF }}
+        run: python3 strumenti/rclone_conf.py
+      - name: Raccolta
+        if: steps.segreti.outputs.ok == 'si'
+        env:
+          ISBNDB_API_KEY: ${{ secrets.ISBNDB_API_KEY }}
+          RISERVA: '300'           # chiamate lasciate agli altri lavori (scheda dei libri dell'app)
+          ANNO_MINIMO: '2000'      # fin dove andare a ritroso
+        run: |
+          set -o pipefail
+          python3 -u strumenti/isbndb_raccolta.py --minuti 320 2>&1 | tee "$RUNNER_TEMP/isbndb.log"
+      - name: Elenco pulito
+        if: always() && steps.segreti.outputs.ok == 'si'
+        run: python3 -u strumenti/isbndb_elenco.py 2>&1 | tee -a "$RUNNER_TEMP/isbndb.log"
+      - name: Giro successivo
+        if: steps.segreti.outputs.ok == 'si'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ -f "$RUNNER_TEMP/isbndb/continua" ]; then gh workflow run isbndb-raccolta.yml --ref main -R "$GITHUB_REPOSITORY" && echo "giro successivo avviato"; fi
+      - name: Registro
+        if: always() && steps.segreti.outputs.ok == 'si'
+        run: |
+          f="$RUNNER_TEMP/isbndb.log"
+          [ -f "$f" ] || exit 0
+          python3 strumenti/registro_pulito.py "$f"
+          rclone copyto "$f" "drive:Fabula App/cataloghi/Italia/registri/isbndb_$(date -u +%Y%m%d_%H%M).log"
