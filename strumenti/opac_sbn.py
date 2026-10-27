@@ -20,7 +20,8 @@ da solo (schede_complete/connessioni.json):
     (--connessioni o OPAC_CONNESSIONI, 8 nel workflow);
   - se il server rallenta (tempo per libro una volta e mezza quello normale) o gli errori superano il 2% → 2 in meno;
   - se il server smette di rispondere → tutte le connessioni si fermano subito, e al giro dopo sono la metà.
-27/10 sera, decisione di Paolo: niente salita né freno, sempre il massimo (8) da subito (OPAC_FISSO=si nel workflow).
+27/10 sera, decisione di Paolo: niente salita né freno, sempre il massimo da subito (OPAC_FISSO=si nel workflow):
+8 connessioni, dalle 19:45 15. Il server smette di rispondere dopo 2-4 minuti anche con 1 o 2 connessioni.
 Se il server smette di rispondere ci si ferma lo stesso e si riprova dopo 10 minuti, di nuovo con 8 connessioni.
 Segreto: RCLONE_CONF (Drive).
 """
@@ -552,7 +553,7 @@ def main():
                   f"non trovate {tot['non_trovate']}, errori {tot['errori']}", flush=True)
 
         def lavoratore(k):
-            time.sleep(k * 5)                        # le connessioni si aprono a qualche secondo l'una dall'altra
+            time.sleep(k * 2)                        # le connessioni si aprono a qualche secondo l'una dall'altra
             file_marc = os.path.join(a.lavoro, f'lotto_{k}.mrc')
             while not ferma.is_set() and time.time() < fine - 120:
                 presi = prossimo_lotto()

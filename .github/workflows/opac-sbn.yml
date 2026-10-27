@@ -51,8 +51,8 @@ jobs:
         if: steps.segreti.outputs.ok == 'si'
         env:
           SBN_SELEZIONE_DA: 'selezione_2026-10-26'   # le selezioni più vecchie non si usano
-          OPAC_CONNESSIONI: '8'                      # connessioni in parallelo (8 = circa 26.000 schede l'ora)
-          OPAC_FISSO: 'si'                           # 27/10 sera (Paolo): sempre 8, senza salita né freno
+          OPAC_CONNESSIONI: '15'                     # 27/10 19:45 (Paolo): 15 connessioni in parallelo
+          OPAC_FISSO: 'si'                           # sempre il massimo, senza salita né freno
         run: |
           set -o pipefail
           python3 -u strumenti/opac_sbn.py --minuti 54 2>&1 | tee "$RUNNER_TEMP/opac.log"
