@@ -1,0 +1,56 @@
+name: isbndb-copertine
+# Copertine dei libri raccolti da ISBNdb, scaricate dai link dell'elenco pulito e salvate nel Drive
+# (cataloghi/Italia/isbndb/copertine): pacchetti .tar da 2.000 immagini e indici. Vedi strumenti/isbndb_copertine.py.
+# Condizioni ISBNdb: si possono tenere solo finché l'abbonamento è attivo.
+# Riprende sempre da dove era arrivato; a tempo finito parte subito un altro giro, finché le copertine sono finite.
+# Segreto: RCLONE_CONF (accesso al Drive).
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: write                 # per far partire il giro successivo
+concurrency:
+  group: isbndb-copertine
+  cancel-in-progress: false
+jobs:
+  copertine:
+    runs-on: ubuntu-latest
+    timeout-minutes: 355
+    steps:
+      - name: Controllo del segreto
+        id: segreti
+        env:
+          RCLONE_CONF: ${{ secrets.RCLONE_CONF }}
+        run: |
+          if [ -z "$RCLONE_CONF" ]; then echo "::notice::Manca il segreto RCLONE_CONF: niente da fare."; echo "ok=no" >> "$GITHUB_OUTPUT"
+          else echo "ok=si" >> "$GITHUB_OUTPUT"; fi
+      - uses: actions/checkout@v4
+        if: steps.segreti.outputs.ok == 'si'
+      - name: Strumenti
+        if: steps.segreti.outputs.ok == 'si'
+        run: |
+          curl -s https://rclone.org/install.sh | sudo bash > /dev/null
+          pip install -q pillow
+      - name: Accesso al Drive
+        if: steps.segreti.outputs.ok == 'si'
+        env:
+          RCLONE_CONF: ${{ secrets.RCLONE_CONF }}
+        run: python3 strumenti/rclone_conf.py
+      - name: Copertine
+        if: steps.segreti.outputs.ok == 'si'
+        run: |
+          set -o pipefail
+          python3 -u strumenti/isbndb_copertine.py --minuti 330 2>&1 | tee "$RUNNER_TEMP/copertine.log"
+      - name: Giro successivo
+        if: steps.segreti.outputs.ok == 'si'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ -f "$RUNNER_TEMP/continua" ]; then gh workflow run isbndb-copertine.yml --ref main -R "$GITHUB_REPOSITORY" && echo "giro successivo avviato"; fi
+      - name: Registro
+        if: always() && steps.segreti.outputs.ok == 'si'
+        run: |
+          f="$RUNNER_TEMP/copertine.log"
+          [ -f "$f" ] || exit 0
+          python3 strumenti/registro_pulito.py "$f"
+          rclone copyto "$f" "drive:Fabula App/cataloghi/Italia/registri/copertine_$(date -u +%Y%m%d_%H%M).log"

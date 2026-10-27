@@ -67,6 +67,7 @@ def scheda(x):
         'autori': [str(a) for a in (x.get('authors') or [])], 'editore': ed, 'data': data,
         'anno': int(anno.group(1)) if anno else None, 'pagine': x.get('pages'), 'rilegatura': x.get('binding'),
         'lingua': x.get('language'), 'copertina': x.get('image_original') or x.get('image'), 'sinossi': sinossi,
+        'copertina_base': x.get('image'),     # il link "image_original" può scadere: questo resta (isbndb_copertine.py)
         'soggetti': soggetti, 'altri_isbn': [o.get('isbn') for o in (x.get('other_isbns') or []) if isinstance(o, dict)],
         'fonti': [x.get('_fase', '?')],
         'romance': bool(x.get('_fase') == 'romance' or any(ROMANCE.search(s) for s in soggetti)),
