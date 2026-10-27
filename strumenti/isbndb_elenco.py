@@ -25,7 +25,7 @@ import sys
 from collections import Counter
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from isbndb_raccolta import DEST, Archivio, autopubblicato, ora  # noqa: E402
+from isbndb_raccolta import DEST, Archivio, autopubblicato, norm, ora  # noqa: E402
 
 TITOLO_SPORCO = re.compile(r'\s*[\(\[](italian edition|edizione italiana|versione italiana|italian version|in italiano|italian)[\)\]]\s*', re.I)
 ROMANCE = re.compile(r'\b(romance|romantasy|new adult|love & romance)\b', re.I)
@@ -89,6 +89,38 @@ def unisci(a, b):
     migliore['soggetti'] = list(dict.fromkeys(a['soggetti'] + b['soggetti']))
     migliore['romance'] = a['romance'] or b['romance']
     return migliore
+
+
+RANGO = {'non_ancora': 0, 'assente': 1, 'piccola': 2, 'grande': 3}
+
+
+def chiave_opera(s):
+    """Stessa opera in più edizioni (cartaceo, ebook, tascabile): titolo senza sottotitolo + nomi della prima autrice."""
+    t = norm(re.split(r'[:.(]| - ', s['titolo'] or '')[0])
+    a = ' '.join(sorted(norm((s['autori'] or [''])[0]).split()))
+    return f'{t}|{a}'
+
+
+def stato_copertine(arch):
+    """isbn -> 'grande' | 'piccola' | 'assente' secondo gli indici delle copertine già scaricate."""
+    out = {}
+    try:
+        nomi = sorted(x for x in arch._rclone('lsf', f'{arch.dest}/copertine/indici', '--files-only').split('\n') if x) \
+            if not arch.locale else sorted(os.listdir(os.path.join(arch.dest, 'copertine/indici')))
+    except Exception:
+        return out
+    for nome in nomi:
+        for riga in arch.leggi(f'copertine/indici/{nome}').decode('utf-8').split('\n')[1:]:
+            p = riga.split('\t')
+            if len(p) < 7:
+                continue
+            if p[1] == 'ok':
+                v = 'grande' if ('/original/' in p[6] or int(p[2] or 0) >= 400) else 'piccola'
+            else:
+                v = 'assente'
+            if out.get(p[0]) != 'grande':
+                out[p[0]] = v
+    return out
 
 
 def main(lavoro):
@@ -155,6 +187,33 @@ def main(lavoro):
         'per_anno': dict(sorted(Counter(str(s['anno'] or 'senza') for s in elenco).items(), reverse=True)),
         'per_fonte': dict(Counter(f for s in elenco for f in s['fonti'])),
         'editori_principali': Counter(s['editore'] for s in elenco if not s['autopubblicato']).most_common(60),
+    }
+    # pronti per le schede (DeepSeek): libri utili con sinossi, contati come opere (una scheda per opera, non per edizione)
+    cop = stato_copertine(arch)
+    con_s = [s for s in ut if s['con_sinossi']]
+    opere = {}
+    for s in con_s:
+        k = chiave_opera(s)
+        o = opere.setdefault(k, {'editore': False, 'romance': False, 'copertina': 'non_ancora'})
+        o['editore'] |= not s['autopubblicato']
+        o['romance'] |= s['romance']
+        c = cop.get(s['isbn13'], 'non_ancora')
+        if RANGO[c] > RANGO[o['copertina']]:          # la migliore tra le edizioni dell'opera
+            o['copertina'] = c
+    provate = [s for s in ut if s['isbn13'] in cop]
+    riepilogo['per_deepseek'] = {
+        'edizioni_con_sinossi': len(con_s),
+        'opere_con_sinossi': len(opere),
+        'opere_di_editori': sum(o['editore'] for o in opere.values()),
+        'opere_autopubblicate': sum(not o['editore'] for o in opere.values()),
+        'opere_romance': sum(o['romance'] for o in opere.values()),
+        'copertina_opere': dict(Counter(o['copertina'] for o in opere.values())),
+        'campione_copertine': {
+            'provate': len(provate),
+            'con_sinossi_e_copertina': sum(1 for s in provate if s['con_sinossi'] and cop[s['isbn13']] != 'assente'),
+            'con_sinossi': sum(1 for s in provate if s['con_sinossi']),
+            'senza_sinossi_con_copertina': sum(1 for s in provate if not s['con_sinossi'] and cop[s['isbn13']] != 'assente'),
+            'senza_sinossi': sum(1 for s in provate if not s['con_sinossi'])},
     }
     arch.scrivi('elenco/riepilogo.json', json.dumps(riepilogo, ensure_ascii=False, indent=1).encode('utf-8'))
     print(f'elenco: {len(elenco)} libri ({riepilogo["con_sinossi"]} con sinossi), romance {len(rom)}, da {righe} righe in {len(parti)} file')
