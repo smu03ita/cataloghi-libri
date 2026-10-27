@@ -20,6 +20,8 @@ da solo (schede_complete/connessioni.json):
     (--connessioni o OPAC_CONNESSIONI, 8 nel workflow);
   - se il server rallenta (tempo per libro una volta e mezza quello normale) o gli errori superano il 2% → 2 in meno;
   - se il server smette di rispondere → tutte le connessioni si fermano subito, e al giro dopo sono la metà.
+27/10 sera, decisione di Paolo: niente salita né freno, sempre il massimo (8) da subito (OPAC_FISSO=si nel workflow).
+Se il server smette di rispondere ci si ferma lo stesso e si riprova dopo 10 minuti, di nuovo con 8 connessioni.
 Segreto: RCLONE_CONF (Drive).
 """
 import argparse
@@ -47,6 +49,7 @@ PARTE = 2000            # libri per file nel Drive
 ATTESA = 600            # se il server non risponde: secondi di attesa prima di riprovare (dentro lo stesso giro)
 PRIMO_LIVELLO = 4       # connessioni del primo giro in parallelo
 PASSO = 2               # connessioni in più (o in meno) da un giro all'altro
+FISSO = os.environ.get('OPAC_FISSO', '').lower() in ('si', 'sì', '1', 'true')   # sempre il massimo, senza salita né freno
 SECONDI_NORMALI = 1.1   # secondi per libro su una connessione quando il server va bene (27/10: 200 libri in circa 3,4 minuti)
 
 def isbn13(s):
@@ -422,6 +425,8 @@ def leggi_livello(locale, massimo):
     """Connessioni da usare in questo giro (deciso alla fine del giro prima)."""
     if massimo <= 1:
         return 1
+    if FISSO:
+        return massimo
     try:
         if locale:
             testo = open(os.path.join(locale, 'connessioni.json'), encoding='utf-8').read()
@@ -446,6 +451,8 @@ def scrivi_livello(lavoro, locale, dati):
 
 
 def prossimo_livello(livello, massimo, fermato_dal_server, giro_ok, tot, secondi_per_libro):
+    if FISSO:
+        return massimo, 'numero fisso (decisione di Paolo, 27/10)'
     provati = tot['schede'] + tot['non_trovate'] + tot['errori']
     if fermato_dal_server:
         return max(1, livello // 2), 'il server ha smesso di rispondere: metà delle connessioni'
