@@ -618,6 +618,10 @@ def main():
               f"non trovate {tot['non_trovate']}, errori {tot['errori']} · {nota or 'tempo finito, si riparte'}", flush=True)
         if continua:
             open(os.path.join(a.lavoro, 'continua'), 'w').close()
+        elif fermato_dal_server:
+            # 27/10 sera: i tentativi programmati di GitHub ogni 10 minuti spesso non partono; il workflow aspetta 10 minuti
+            # e riprova da solo (passo "Giro successivo")
+            open(os.path.join(a.lavoro, 'riprova'), 'w').close()
 
 if __name__ == '__main__':
     main()

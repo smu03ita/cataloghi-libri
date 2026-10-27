@@ -25,7 +25,7 @@ concurrency:
 jobs:
   scarica:
     runs-on: ubuntu-latest
-    timeout-minutes: 59
+    timeout-minutes: 70        # 54 di giro + al massimo 10 di attesa prima di riprovare
     steps:
       - name: Controllo del segreto
         id: segreti
@@ -60,7 +60,12 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          if [ -f "$RUNNER_TEMP/continua" ]; then gh workflow run opac-sbn.yml --ref main -R "$GITHUB_REPOSITORY" && echo "giro successivo avviato"; fi
+          if [ -f "$RUNNER_TEMP/continua" ]; then gh workflow run opac-sbn.yml --ref main -R "$GITHUB_REPOSITORY" && echo "giro successivo avviato"
+          elif [ -f "$RUNNER_TEMP/riprova" ]; then
+            # il server non risponde: si riprova tra 10 minuti senza contare sui tentativi programmati, che GitHub spesso salta
+            echo "server fermo: riprovo tra 10 minuti"; sleep 600
+            gh workflow run opac-sbn.yml --ref main -R "$GITHUB_REPOSITORY" && echo "nuovo tentativo avviato"
+          fi
       - name: Registro
         if: always() && steps.segreti.outputs.ok == 'si'
         run: |
