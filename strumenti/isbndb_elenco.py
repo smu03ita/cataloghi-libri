@@ -136,13 +136,17 @@ def main(lavoro):
     if not parti:
         print('nessun file grezzo: niente da fare')
         return
-    libri, righe = {}, 0
+    libri, righe, campi = {}, 0, Counter()
     for p in parti:
         for riga in gzip.decompress(arch.leggi(f'grezzi/{p}')).decode('utf-8').split('\n'):
             if not riga.strip():
                 continue
             righe += 1
-            s = scheda(json.loads(riga))
+            grezzo = json.loads(riga)
+            for k, v in grezzo.items():                 # quali campi dà ISBNdb, e quanto spesso sono pieni
+                if v not in (None, '', [], {}) and not k.startswith('_'):
+                    campi[k] += 1
+            s = scheda(grezzo)
             if not re.fullmatch(r'97[89]\d{10}', s['isbn13']):
                 continue
             libri[s['isbn13']] = unisci(libri[s['isbn13']], s) if s['isbn13'] in libri else s
@@ -169,6 +173,7 @@ def main(lavoro):
     ut_rom = [s for s in ut if s['romance']]
     riepilogo = {
         'aggiornato': ora(), 'righe_grezze': righe, 'libri_diversi': len(elenco),
+        'campi_isbndb': dict(campi.most_common()),
         'con_sinossi': sum(s['con_sinossi'] for s in elenco), 'con_copertina': sum(bool(s['copertina']) for s in elenco),
         'autopubblicati': sum(s['autopubblicato'] for s in elenco), 'scolastici': sum(s['scolastico'] for s in elenco),
         'non_in_italiano': sum(not s['lingua_it'] for s in elenco),
