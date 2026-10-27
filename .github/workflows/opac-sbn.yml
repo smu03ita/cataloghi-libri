@@ -1,8 +1,11 @@
 name: opac-sbn
-# Schede complete dall'OPAC SBN (UNIMARC via Z39.50), una richiesta alla volta. Tutto nel Drive (cataloghi/Italia/schede_complete):
+# Schede complete dall'OPAC SBN (UNIMARC via Z39.50). Tutto nel Drive (cataloghi/Italia/schede_complete):
 # l'ordine dei libri, cosa è già fatto, le schede, il riepilogo di ogni giro. Riprende sempre da dove era arrivato;
 # se il server non risponde o rifiuta le ricerche si ferma subito e riprova 10 minuti dopo, a qualunque ora; se va tutto
 # bene, alla fine di ogni giro ne parte subito un altro. Sempre un giro alla volta (concurrency). Vedi strumenti/opac_sbn.py.
+# 27/10 sera (Paolo: finire tutta la coda in circa 2 giorni): dentro il giro più connessioni in parallelo dallo stesso computer,
+# da 4 fino a OPAC_CONNESSIONI; il numero sale di 2 a ogni giro regolare e scende da solo se il server rallenta, dà errori o
+# smette di rispondere (schede_complete/connessioni.json).
 # Segreto: RCLONE_CONF (accesso al Drive).
 on:
   schedule:
@@ -48,6 +51,7 @@ jobs:
         if: steps.segreti.outputs.ok == 'si'
         env:
           SBN_SELEZIONE_DA: 'selezione_2026-10-26'   # le selezioni più vecchie non si usano
+          OPAC_CONNESSIONI: '8'                      # massimo di connessioni in parallelo (8 = circa 26.000 schede l'ora)
         run: |
           set -o pipefail
           python3 -u strumenti/opac_sbn.py --minuti 54 2>&1 | tee "$RUNNER_TEMP/opac.log"
