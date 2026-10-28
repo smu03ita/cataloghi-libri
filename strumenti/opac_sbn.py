@@ -493,7 +493,8 @@ def main():
     livello = leggi_livello(a.locale, a.connessioni)
     tot['connessioni'] = livello
     lock, ferma = threading.Lock(), threading.Event()
-    st = {'pos': 0, 'coda_finita': False, 'server': None, 'errore': None, 'secondi': 0.0, 'provati': 0}
+    st = {'pos': 0, 'coda_finita': False, 'server': None, 'errore': None, 'secondi': 0.0, 'provati': 0,
+          'limite': livello, 'recenti': collections.deque(maxlen=2000)}
     fermato_dal_server = False
     try:
         coda, nome_sel = coda_ordinata(a.lavoro)
@@ -564,7 +565,7 @@ def main():
         def lavoratore(k):
             time.sleep(k * 2)                        # le connessioni si aprono a qualche secondo l'una dall'altra
             file_marc = os.path.join(a.lavoro, f'lotto_{k}.mrc')
-            while not ferma.is_set() and time.time() < fine - 120:
+            while not ferma.is_set() and time.time() < fine - 120 and k < st['limite']:
                 presi = prossimo_lotto()
                 if not presi:
                     return
@@ -587,6 +588,7 @@ def main():
                 with lock:
                     st['secondi'] += time.time() - t0
                     st['provati'] += len(esiti)
+                    st['recenti'].append((time.time(), time.time() - t0, len(esiti)))
                     try:
                         registra(presi, esiti, dati, scarta_errori=ferma.is_set())
                     except Exception as e:           # es. Drive non raggiungibile: si chiude il giro
@@ -594,9 +596,28 @@ def main():
                         ferma.set()
                         return
 
+        def guardiano():
+            # 28/10: con tante connessioni, se il server rallenta per tutti (tempo per scheda sopra OPAC_LENTO secondi negli
+            # ultimi 5 minuti) le connessioni in più si chiudono subito e si resta a OPAC_RIENTRO
+            soglia = float(os.environ.get('OPAC_LENTO', '2.5'))
+            rientro = int(os.environ.get('OPAC_RIENTRO', '25'))
+            while any(f.is_alive() for f in fili):
+                time.sleep(60)
+                with lock:
+                    ora_ = time.time()
+                    rec = [(d, n) for t, d, n in st['recenti'] if ora_ - t < 300]
+                    sec, n = sum(d for d, _ in rec), sum(n for _, n in rec)
+                    if n >= 200 and sec / n > soglia and st['limite'] > rientro:
+                        st['limite'] = rientro
+                        tot['rallentato'] = f'{sec / n:.2f} s per scheda: connessioni ridotte a {rientro}'
+                        print(f'{datetime.datetime.now():%H:%M} server lento ({sec / n:.2f} s per scheda): '
+                              f'scendo a {rientro} connessioni', flush=True)
+
         fili = [threading.Thread(target=lavoratore, args=(k,), daemon=True) for k in range(livello)]
         for f in fili:
             f.start()
+        if livello > 25:
+            threading.Thread(target=guardiano, daemon=True).start()
         for f in fili:
             f.join()
         if st['server']:
