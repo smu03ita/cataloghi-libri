@@ -348,9 +348,35 @@ def prova_rinnovo(isbns):
         print(f'::notice title=prova rinnovo {nome}::HTTP {stato} · {info}', flush=True)
 
 
+def prova_cerca(percorsi):
+    """Prova di ricerche GET (es. /publisher/Mondadori?language=it&pageSize=50): stato, totale, lingue dei libri.
+    Una chiamata per percorso. Non stampa mai la chiave."""
+    from isbndb_raccolta import API
+    chiave = os.environ.get('ISBNDB_API_KEY', '').strip()
+    for percorso in percorsi:
+        req = urllib.request.Request(API + percorso, headers={'Authorization': chiave, 'Accept': 'application/json', 'User-Agent': UA})
+        try:
+            with urllib.request.urlopen(req, timeout=60) as r:
+                stato, corpo = r.status, r.read().decode('utf-8', 'replace')
+        except urllib.error.HTTPError as e:
+            stato, corpo = e.code, e.read().decode('utf-8', 'replace')
+        try:
+            d = json.loads(corpo)
+            libri = d.get('books') or d.get('data') or []
+            lingue = collections.Counter(str(x.get('language')) for x in libri if isinstance(x, dict))
+            editori = collections.Counter(str(x.get('publisher')) for x in libri if isinstance(x, dict))
+            info = f"totale {d.get('total')}, libri {len(libri)}, lingue {dict(lingue.most_common(5))}, editori {dict(editori.most_common(3))}"
+        except Exception:
+            info = 'risposta non JSON: ' + senza_segreti(corpo[:150])
+        print(f'::notice title=prova ricerca::{percorso} · HTTP {stato} · {info}', flush=True)
+
+
 def main():
     if len(sys.argv) > 2 and sys.argv[1] == '--prova-rinnovo':
-        prova_rinnovo([x for x in sys.argv[2].split(',') if x])
+        if sys.argv[2].startswith('/'):
+            prova_cerca([x for x in sys.argv[2].split(' ') if x])
+        else:
+            prova_rinnovo([x for x in sys.argv[2].split(',') if x])
         return
     ap = argparse.ArgumentParser()
     ap.add_argument('--modo', choices=('rinnova', 'link'), default='rinnova')
