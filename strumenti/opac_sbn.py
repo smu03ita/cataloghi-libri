@@ -111,7 +111,13 @@ def scheda(r):
         'soggetti': [s for s in soggetti if s][:20],
         'sinossi': '\n'.join(_sf(r, '330', 'a'))[:6000] or None,
         'titolo_uniforme': (_sf(r, '500', 'a') or [None])[0],
+        # 454 «traduzione di»: il titolo originale è nel 200 incorporato ($1 200 $a)
+        'titolo_originale': (_sf(r, '454', 'a') or [None])[0],
         'autori': autori[:20],
+        # ruoli del campo 702 (e 701): 730 traduttore, 340 curatore, 440 illustratore
+        'traduttori': [a['nome'] for a in autori if a['ruolo'] == '730'][:5],
+        'curatori': [a['nome'] for a in autori if a['ruolo'] == '340'][:5],
+        'illustratori': [a['nome'] for a in autori if a['ruolo'] == '440'][:5],
         'n_biblioteche': len(biblioteche - {''}) if biblioteche else 0,
         'note': _sf(r, '300', 'a')[:10],
     }
