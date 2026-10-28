@@ -52,6 +52,8 @@ jobs:
         env:
           SBN_SELEZIONE_DA: 'selezione_2026-10-26'   # le selezioni più vecchie non si usano
           OPAC_CONNESSIONI: '15'                     # 27/10 19:45 (Paolo): 15 connessioni in parallelo
+          OPAC_PROVA_CONNESSIONI: '25'               # 28/10: prova di 2 ore con 25 connessioni (Paolo ne chiedeva 100)
+          OPAC_PROVA_FINO: '2026-10-28T13:30:00Z'    # dopo, da solo, di nuovo 15
           OPAC_FISSO: 'si'                           # sempre il massimo, senza salita né freno
         run: |
           set -o pipefail

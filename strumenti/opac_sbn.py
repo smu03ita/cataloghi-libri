@@ -476,6 +476,15 @@ def main():
                     help='massimo di connessioni in parallelo (si arriva piano, vedi sopra)')
     a = ap.parse_args()
     inizio = datetime.datetime.now(datetime.timezone.utc)
+    # prova a tempo (28/10): più connessioni fino a OPAC_PROVA_FINO, poi si torna da sole al numero normale
+    fino = os.environ.get('OPAC_PROVA_FINO', '')
+    if fino and os.environ.get('OPAC_PROVA_CONNESSIONI'):
+        try:
+            if inizio < datetime.datetime.fromisoformat(fino.replace('Z', '+00:00')):
+                a.connessioni = int(os.environ['OPAC_PROVA_CONNESSIONI'])
+                print(f'prova a tempo: {a.connessioni} connessioni fino a {fino}', flush=True)
+        except ValueError:
+            pass
     giro = f'{inizio:%Y%m%d_%H%M%S}'
     fine = time.time() + a.minuti * 60
     tot = {'schede': 0, 'con_sinossi': 0, 'non_trovate': 0, 'errori': 0, 'opere_saltate': 0}
