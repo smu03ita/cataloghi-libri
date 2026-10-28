@@ -12,7 +12,7 @@ Il workflow (.github/workflows/opac-sbn.yml) prova ogni 10 minuti e riprende sem
   5. ogni giro lascia un riepilogo in schede_complete/giri/ (si vedono gli orari in cui il server risponde).
 Regole: su ogni connessione una richiesta alla volta con una pausa tra le richieste, etichetta neutra, stop su errori ripetuti.
 
-Connessioni in parallelo (27/10 sera, decisione di Paolo: finire tutta la coda in circa 2 giorni). Tutte dallo stesso
+Connessioni in parallelo (27/10 sera, decisione del fondatore: finire tutta la coda in circa 2 giorni). Tutte dallo stesso
 computer, quindi il server ci vede e può rallentarci o fermarci come prima: nessun aggiramento. Il numero sale piano e scende
 da solo (schede_complete/connessioni.json):
   - il primo giro usa 4 connessioni, aperte a qualche secondo l'una dall'altra;
@@ -20,7 +20,7 @@ da solo (schede_complete/connessioni.json):
     (--connessioni o OPAC_CONNESSIONI, 8 nel workflow);
   - se il server rallenta (tempo per libro una volta e mezza quello normale) o gli errori superano il 2% → 2 in meno;
   - se il server smette di rispondere → tutte le connessioni si fermano subito, e al giro dopo sono la metà.
-27/10 sera, decisione di Paolo: niente salita né freno, sempre il massimo da subito (OPAC_FISSO=si nel workflow):
+27/10 sera, decisione del fondatore: niente salita né freno, sempre il massimo da subito (OPAC_FISSO=si nel workflow):
 8 connessioni, dalle 19:45 15. Il server smette di rispondere dopo 2-4 minuti anche con 1 o 2 connessioni.
 Se il server smette di rispondere ci si ferma lo stesso e si riprova dopo 10 minuti, di nuovo con 8 connessioni.
 Segreto: RCLONE_CONF (Drive).
@@ -470,7 +470,7 @@ def scrivi_livello(lavoro, locale, dati):
 
 def prossimo_livello(livello, massimo, fermato_dal_server, giro_ok, tot, secondi_per_libro):
     if FISSO:
-        return massimo, 'numero fisso (decisione di Paolo, 27/10)'
+        return massimo, 'numero fisso (decisione del fondatore, 27/10)'
     provati = tot['schede'] + tot['non_trovate'] + tot['errori']
     if fermato_dal_server:
         return max(1, livello // 2), 'il server ha smesso di rispondere: metà delle connessioni'
@@ -494,7 +494,7 @@ def main():
     a = ap.parse_args()
     inizio = datetime.datetime.now(datetime.timezone.utc)
     # prova a tempo (28/10): più connessioni fino a OPAC_PROVA_FINO, poi si torna da sole al numero normale.
-    # Regola di Paolo (28/10 12:56): se durante la prova non arriva nessuna scheda per più di un'ora, si torna al numero
+    # Regola del fondatore (28/10 12:56): se durante la prova non arriva nessuna scheda per più di un'ora, si torna al numero
     # normale (OPAC_CONNESSIONI) fino alla fine della prova. "ultimo_ok" e "ripiego_fino" stanno in connessioni.json.
     fino = os.environ.get('OPAC_PROVA_FINO', '')
     stato_conn = leggi_stato_connessioni(a.locale)

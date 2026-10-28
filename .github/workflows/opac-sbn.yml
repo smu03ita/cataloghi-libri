@@ -3,13 +3,13 @@ name: opac-sbn
 # l'ordine dei libri, cosa è già fatto, le schede, il riepilogo di ogni giro. Riprende sempre da dove era arrivato;
 # se il server non risponde o rifiuta le ricerche si ferma subito e riprova 10 minuti dopo, a qualunque ora; se va tutto
 # bene, alla fine di ogni giro ne parte subito un altro. Sempre un giro alla volta (concurrency). Vedi strumenti/opac_sbn.py.
-# 27/10 sera (Paolo: finire tutta la coda in circa 2 giorni): dentro il giro più connessioni in parallelo dallo stesso computer,
+# 27/10 sera (fondatore: finire tutta la coda in circa 2 giorni): dentro il giro più connessioni in parallelo dallo stesso computer,
 # da 4 fino a OPAC_CONNESSIONI; il numero sale di 2 a ogni giro regolare e scende da solo se il server rallenta, dà errori o
 # smette di rispondere (schede_complete/connessioni.json).
 # Segreto: RCLONE_CONF (accesso al Drive).
 on:
   schedule:
-    - cron: '*/10 * * * *'   # 27/10 pomeriggio (Paolo): un tentativo ogni 10 minuti, giorno e notte; se il server risponde,
+    - cron: '*/10 * * * *'   # 27/10 pomeriggio (fondatore): un tentativo ogni 10 minuti, giorno e notte; se il server risponde,
                              # alla fine di ogni giro ne parte subito un altro (passo "Giro successivo"); se rifiuta, ci si ferma
                              # e si riprova al tentativo dopo. Un giro alla volta: i tentativi che arrivano durante un giro aspettano.
   workflow_dispatch:
@@ -51,11 +51,11 @@ jobs:
         if: steps.segreti.outputs.ok == 'si'
         env:
           SBN_SELEZIONE_DA: 'selezione_2026-10-26'   # le selezioni più vecchie non si usano
-          OPAC_CONNESSIONI: '30'                     # numero normale (28/10 12:56, Paolo: 30; prima 15)
-          OPAC_PROVA_CONNESSIONI: '100'              # 28/10: 100 connessioni fino alle 20:00; Paolo dice di avere la conferma
+          OPAC_CONNESSIONI: '30'                     # numero normale (28/10 12:56, fondatore: 30; prima 15)
+          OPAC_PROVA_CONNESSIONI: '100'              # 28/10: 100 connessioni fino alle 20:00; il fondatore dice di avere la conferma
                                                      # del Servizio bibliotecario nazionale (non condivisibile)
           OPAC_PROVA_FINO: '2026-10-28T19:00:00Z'    # 20:00 ora italiana; se per più di un'ora non arriva nessuna scheda,
-                                                     # si torna a 30 prima (regola di Paolo)
+                                                     # si torna a 30 prima (regola del fondatore)
           OPAC_LENTO: '2.5'                          # se il server rallenta per tutti (oltre 2,5 s per scheda) si scende…
           OPAC_RIENTRO: '30'                         # …a 30 connessioni, nel giro stesso
           OPAC_FISSO: 'si'                           # sempre il massimo, senza salita né freno
