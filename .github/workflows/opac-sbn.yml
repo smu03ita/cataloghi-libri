@@ -51,12 +51,13 @@ jobs:
         if: steps.segreti.outputs.ok == 'si'
         env:
           SBN_SELEZIONE_DA: 'selezione_2026-10-26'   # le selezioni più vecchie non si usano
-          OPAC_CONNESSIONI: '15'                     # 27/10 19:45 (Paolo): 15 connessioni in parallelo
-          OPAC_PROVA_CONNESSIONI: '100'              # 28/10 12:32: prova di 2 ore con 100 connessioni; Paolo dice di avere
-                                                     # la conferma del Servizio bibliotecario nazionale (non condivisibile)
-          OPAC_PROVA_FINO: '2026-10-28T13:35:00Z'    # dopo, da solo, di nuovo 15
+          OPAC_CONNESSIONI: '30'                     # numero normale (28/10 12:56, Paolo: 30; prima 15)
+          OPAC_PROVA_CONNESSIONI: '100'              # 28/10: 100 connessioni fino alle 20:00; Paolo dice di avere la conferma
+                                                     # del Servizio bibliotecario nazionale (non condivisibile)
+          OPAC_PROVA_FINO: '2026-10-28T19:00:00Z'    # 20:00 ora italiana; se per più di un'ora non arriva nessuna scheda,
+                                                     # si torna a 30 prima (regola di Paolo)
           OPAC_LENTO: '2.5'                          # se il server rallenta per tutti (oltre 2,5 s per scheda) si scende…
-          OPAC_RIENTRO: '25'                         # …a 25 connessioni, nel giro stesso
+          OPAC_RIENTRO: '30'                         # …a 30 connessioni, nel giro stesso
           OPAC_FISSO: 'si'                           # sempre il massimo, senza salita né freno
         run: |
           set -o pipefail

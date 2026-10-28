@@ -438,6 +438,17 @@ def leggi_livello(locale, massimo):
         return min(PRIMO_LIVELLO, massimo)
 
 
+def leggi_stato_connessioni(locale):
+    try:
+        if locale:
+            testo = open(os.path.join(locale, 'connessioni.json'), encoding='utf-8').read()
+        else:
+            testo = rclone('cat', f'{CARTELLA}/connessioni.json')
+        return json.loads(testo)
+    except Exception:
+        return {}
+
+
 def scrivi_livello(lavoro, locale, dati):
     f = os.path.join(lavoro, 'connessioni.json')
     with open(f, 'w', encoding='utf-8') as g:
@@ -476,13 +487,22 @@ def main():
                     help='massimo di connessioni in parallelo (si arriva piano, vedi sopra)')
     a = ap.parse_args()
     inizio = datetime.datetime.now(datetime.timezone.utc)
-    # prova a tempo (28/10): più connessioni fino a OPAC_PROVA_FINO, poi si torna da sole al numero normale
+    # prova a tempo (28/10): più connessioni fino a OPAC_PROVA_FINO, poi si torna da sole al numero normale.
+    # Regola di Paolo (28/10 12:56): se durante la prova non arriva nessuna scheda per più di un'ora, si torna al numero
+    # normale (OPAC_CONNESSIONI) fino alla fine della prova. "ultimo_ok" e "ripiego_fino" stanno in connessioni.json.
     fino = os.environ.get('OPAC_PROVA_FINO', '')
+    stato_conn = leggi_stato_connessioni(a.locale)
+    ultimo_ok = stato_conn.get('ultimo_ok')
+    ripiego = bool(fino) and stato_conn.get('ripiego_fino') == fino
     if fino and os.environ.get('OPAC_PROVA_CONNESSIONI'):
         try:
             if inizio < datetime.datetime.fromisoformat(fino.replace('Z', '+00:00')):
-                a.connessioni = int(os.environ['OPAC_PROVA_CONNESSIONI'])
-                print(f'prova a tempo: {a.connessioni} connessioni fino a {fino}', flush=True)
+                if not ripiego and ultimo_ok and inizio - datetime.datetime.fromisoformat(ultimo_ok) > datetime.timedelta(hours=1):
+                    ripiego = True
+                    print(f'nessuna scheda da più di un\'ora (ultima: {ultimo_ok}): si torna a {a.connessioni} connessioni', flush=True)
+                if not ripiego:
+                    a.connessioni = int(os.environ['OPAC_PROVA_CONNESSIONI'])
+                print(f'prova a tempo fino a {fino}: {a.connessioni} connessioni', flush=True)
         except ValueError:
             pass
     giro = f'{inizio:%Y%m%d_%H%M%S}'
@@ -645,9 +665,12 @@ def main():
         if a.connessioni > 1:
             prossimo, perche = prossimo_livello(livello, a.connessioni, fermato_dal_server, continua, tot, secondi_per_libro)
             tot['connessioni_prossimo_giro'] = prossimo
+            adesso = datetime.datetime.now(datetime.timezone.utc).isoformat(timespec='seconds')
             scrivi_livello(a.lavoro, a.locale, {'usato': livello, 'prossimo': prossimo, 'perche': perche,
                                                 'secondi_per_libro': secondi_per_libro, 'massimo': a.connessioni,
-                                                'quando': datetime.datetime.now(datetime.timezone.utc).isoformat(timespec='seconds')})
+                                                'quando': adesso,
+                                                'ultimo_ok': adesso if tot['schede'] > 0 else (ultimo_ok or adesso),
+                                                'ripiego_fino': fino if ripiego else None})
         dati = dict(tot, inizio=inizio.isoformat(timespec='seconds'),
                     fine=datetime.datetime.now(datetime.timezone.utc).isoformat(timespec='seconds'), nota=nota or 'ok')
         scrivi_giro(a.lavoro, giro, dati, a.locale)
