@@ -287,6 +287,23 @@ def elenca(percorso):
 
 
 def coda_ordinata(lavoro):
+    """Coda principale della selezione, poi le code supplementari (schede_complete/coda_extra_*.tsv.gz, es. i libri "88"
+    aggiunti il 28/10), senza doppioni."""
+    coda, nome_sel = coda_principale(lavoro)
+    visti = {c for c, _, _ in coda}
+    for nome in sorted(x for x in elenca(CARTELLA) if re.match(r'coda_extra_.*\.tsv\.gz$', x)):
+        testo = gzip.decompress(rclone('cat', f'{CARTELLA}/{nome}', binario=True)).decode('utf-8')
+        prima = len(coda)
+        for l in testo.split('\n')[1:]:
+            p = l.split('\t')
+            if len(p) >= 2 and p[0] and p[0] not in visti:
+                visti.add(p[0])
+                coda.append((p[0], p[1] or None, (p[2] if len(p) > 2 else '') or None))
+        print(f'{nome}: {len(coda) - prima:,} libri aggiunti in fondo alla coda', flush=True)
+    return coda, nome_sel
+
+
+def coda_principale(lavoro):
     """[(codice, isbn, opera)] nell'ordine in cui vanno scaricati. Calcolata una volta per selezione e salvata nel Drive."""
     sel = selezione_pronta()
     if not sel:
