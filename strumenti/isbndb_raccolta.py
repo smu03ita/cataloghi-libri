@@ -160,6 +160,9 @@ class Isbndb:
             p['column'] = lavoro['col']
         else:
             percorso = f'/publisher/{q}'
+            # 28/10: senza lingua la ricerca per editore dà tutti i libri del mondo con quel nome (HarperCollins: 10.000
+            # in inglese); qui il filtro funziona solo col codice a tre lettere ("it" dà zero risultati)
+            p['language'] = 'ita'
         d = self._get(percorso, p)
         libri = d.get('books') or d.get('data') or []
         totale = d.get('total')

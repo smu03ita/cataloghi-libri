@@ -151,7 +151,9 @@ def main(lavoro):
                 continue
             libri[s['isbn13']] = unisci(libri[s['isbn13']], s) if s['isbn13'] in libri else s
     elenco = sorted(libri.values(), key=lambda s: (-(s['anno'] or 0), s['titolo'].lower()))
-    per_editore = Counter(s['editore'].lower() for s in elenco)
+    # 28/10: si contano solo i libri in italiano (HarperCollins o Springer hanno migliaia di titoli in inglese, ma non
+    # sono ristampatori)
+    per_editore = Counter(s['editore'].lower() for s in elenco if s['lingua_it'])
     for s in elenco:
         # gli autopubblicati (KDP, "Independently published") non sono ristampe: restano autopubblicati, che entrano se hanno lettori
         s['ristampa'] = bool(RISTAMPE.search(s['editore']) or

@@ -23,7 +23,20 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 355
     steps:
+      - name: Precedenza alle copertine
+        id: attesa
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # 28/10 (Paolo): prima le copertine grandi dei libri già raccolti, poi la raccolta. Le due cose insieme superano
+          # il limite di ISBNdb (una chiamata al secondo): se il rinnovo delle copertine è in corso, si riprova tra 15 minuti.
+          n=$(gh run list -R "$GITHUB_REPOSITORY" --workflow isbndb-copertine.yml --status in_progress --json databaseId --jq 'length')
+          if [ "$n" != "0" ]; then
+            echo "copertine in corso: la raccolta aspetta"; sleep 900
+            gh workflow run isbndb-raccolta.yml --ref main -R "$GITHUB_REPOSITORY"; echo "aspetta=si" >> "$GITHUB_OUTPUT"
+          else echo "aspetta=no" >> "$GITHUB_OUTPUT"; fi
       - name: Controllo dei segreti
+        if: steps.attesa.outputs.aspetta == 'no'
         id: segreti
         env:
           ISBNDB_API_KEY: ${{ secrets.ISBNDB_API_KEY }}
