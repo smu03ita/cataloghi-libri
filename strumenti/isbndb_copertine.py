@@ -322,7 +322,36 @@ def da_fare(arch, fatti):
     return [(isbn, link) for _, _, isbn, link in libri]
 
 
+def prova_rinnovo(isbns):
+    """Prova del rinnovo su pochi ISBN: per ogni formato del corpo, stato HTTP, campi della risposta, libri trovati.
+    Usa 2 chiamate. Non scrive niente e non stampa mai la chiave."""
+    from isbndb_raccolta import API
+    chiave = os.environ.get('ISBNDB_API_KEY', '').strip()
+    for nome, dati, tipo in (('json', json.dumps({'isbns': isbns}).encode(), 'application/json'),
+                             ('form', ('isbns=' + ','.join(isbns)).encode(), 'application/x-www-form-urlencoded')):
+        req = urllib.request.Request(API + '/books', data=dati, headers={
+            'Authorization': chiave, 'Accept': 'application/json', 'Content-Type': tipo, 'User-Agent': UA})
+        try:
+            with urllib.request.urlopen(req, timeout=60) as r:
+                stato, corpo = r.status, r.read().decode('utf-8', 'replace')
+        except urllib.error.HTTPError as e:
+            stato, corpo = e.code, e.read().decode('utf-8', 'replace')
+        try:
+            d = json.loads(corpo)
+            info = f'campi {sorted(d.keys()) if isinstance(d, dict) else type(d).__name__}'
+            libri = (d.get('data') or d.get('books') or []) if isinstance(d, dict) else []
+            info += f', libri {len(libri)}'
+            if libri and isinstance(libri[0], dict):
+                info += f', campi del libro {sorted(libri[0].keys())}'
+        except Exception:
+            info = 'risposta non JSON: ' + senza_segreti(corpo[:200])
+        print(f'::notice title=prova rinnovo {nome}::HTTP {stato} · {info}', flush=True)
+
+
 def main():
+    if len(sys.argv) > 2 and sys.argv[1] == '--prova-rinnovo':
+        prova_rinnovo([x for x in sys.argv[2].split(',') if x])
+        return
     ap = argparse.ArgumentParser()
     ap.add_argument('--modo', choices=('rinnova', 'link'), default='rinnova')
     ap.add_argument('--minuti', type=float, default=320)

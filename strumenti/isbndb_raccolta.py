@@ -89,16 +89,20 @@ class Isbndb:
         self.ultima = 0.0
         self.chiamate = 0           # chiamate che contano per la quota (non /key)
 
-    def _get(self, percorso, parametri=None, conta=True, corpo=None):
+    def _get(self, percorso, parametri=None, conta=True, corpo=None, corpo_json=None):
         url = API + percorso + ('?' + urllib.parse.urlencode(parametri) if parametri else '')
         dati_post = urllib.parse.urlencode(corpo).encode('utf-8') if corpo else None
+        intestazioni = {'Authorization': self.chiave, 'Accept': 'application/json', 'User-Agent': UA}
+        if corpo_json is not None:
+            dati_post = json.dumps(corpo_json).encode('utf-8')
+            intestazioni['Content-Type'] = 'application/json'
         errore = 'errori ripetuti'
         for prova in range(6):
             attesa = self.pausa - (time.monotonic() - self.ultima)
             if attesa > 0:
                 time.sleep(attesa)
             self.ultima = time.monotonic()
-            req = urllib.request.Request(url, data=dati_post, headers={'Authorization': self.chiave, 'Accept': 'application/json', 'User-Agent': UA})
+            req = urllib.request.Request(url, data=dati_post, headers=intestazioni)
             try:
                 with urllib.request.urlopen(req, timeout=120) as r:
                     dati = json.loads(r.read().decode('utf-8', 'replace') or '{}')
@@ -130,10 +134,22 @@ class Isbndb:
         lim = d.get('plan_limit') or {}
         return int(lim.get('left', 0)), int(lim.get('total', 0))
 
+    formato_molti = None      # 'json' o 'form': quello che ISBNdb accetta, scoperto alla prima chiamata riuscita
+
     def molti(self, isbns):
-        """Fino a 100 ISBN in una chiamata (piano Basic): le schede di nuovo, con i link delle copertine appena creati."""
-        d = self._get('/books', corpo={'isbns': ','.join(isbns)})
-        return [x for x in (d.get('data') or d.get('books') or []) if isinstance(x, dict)]
+        """Fino a 100 ISBN in una chiamata (piano Basic): le schede di nuovo, con i link delle copertine appena creati.
+        28/10: la prima prova (corpo "isbns=..." come modulo) non ha dato libri; si prova anche il corpo JSON."""
+        formati = [self.formato_molti] if self.formato_molti else ['json', 'form']
+        for f in formati:
+            if f == 'json':
+                d = self._get('/books', corpo_json={'isbns': list(isbns)})
+            else:
+                d = self._get('/books', corpo={'isbns': ','.join(isbns)})
+            libri = [x for x in (d.get('data') or d.get('books') or []) if isinstance(x, dict)]
+            if libri:
+                self.formato_molti = f
+                return libri
+        return []
 
     def pagina(self, lavoro, n):
         q = urllib.parse.quote(lavoro['q'], safe='')

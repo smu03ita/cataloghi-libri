@@ -8,6 +8,11 @@ name: isbndb-copertine
 # Segreti: ISBNDB_API_KEY, RCLONE_CONF.
 on:
   workflow_dispatch:
+    inputs:
+      prova:
+        description: 'Solo prova del rinnovo su questi ISBN (separati da virgola): 2 chiamate, non scarica niente'
+        required: false
+        default: ''
 permissions:
   contents: read
   actions: write                 # per far partire il giro successivo
@@ -45,8 +50,10 @@ jobs:
         env:
           ISBNDB_API_KEY: ${{ secrets.ISBNDB_API_KEY }}
           RISERVA: '300'           # chiamate lasciate agli altri lavori
+          PROVA: ${{ inputs.prova }}
         run: |
           set -o pipefail
+          if [ -n "$PROVA" ]; then python3 -u strumenti/isbndb_copertine.py --prova-rinnovo "$PROVA"; exit 0; fi
           python3 -u strumenti/isbndb_copertine.py --modo rinnova --minuti 320 2>&1 | tee "$RUNNER_TEMP/copertine.log"
       - name: Giro successivo
         if: steps.segreti.outputs.ok == 'si'
