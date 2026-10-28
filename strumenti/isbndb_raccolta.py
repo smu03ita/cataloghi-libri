@@ -39,6 +39,10 @@ ANNO_MINIMO = int(os.environ.get('ANNO_MINIMO', '2000'))
 MIN_EDITORE = int(os.environ.get('MIN_EDITORE', '2'))     # libri visti perché un editore abbia le sue ricerche
 PAUSA = float(os.environ.get('PAUSA', '1.1'))            # piano Basic: una chiamata al secondo
 FINE = '2030-12-31'
+# 28/10: le ricerche per editore rendono poco (4.700 chiamate per 25.000 libri utili, contro circa 45 per chiamata delle
+# novità anno per anno). Con EDITORI=no si saltano e si va dritti alle novità degli anni precedenti; le ricerche per
+# editore già in coda si mettono da parte (stato["editori_rimandati"]) per dopo.
+SALTA_EDITORI = os.environ.get('EDITORI', 'si').lower() == 'no'
 # dopo il 2024, a ritroso per blocchi di anni (dal, al)
 BLOCCHI = [(2020, 2023), (2015, 2019), (2010, 2014), (2000, 2009), (1900, 1999)]
 INIZIO = '1000-01-01'
@@ -249,8 +253,10 @@ def prossima_fase(stato):
         nuovi += [lavoro('novita', 'books', str(y), f'{y}-01-01', f'{y}-12-31', 'date_published') for y in (2026, 2025, 2024)]
         stato['fase'] = 'novita_recenti'
     elif f == 'novita_recenti':
-        nuovi = lavori_editori(stato, 'editori', '2024-01-01', FINE)
         stato['fase'] = 'editori_recenti'
+        if SALTA_EDITORI:
+            return prossima_fase(stato)
+        nuovi = lavori_editori(stato, 'editori', '2024-01-01', FINE)
     elif f == 'editori_recenti' or f.startswith('blocco:'):
         # a ritroso per blocchi di anni: prima le novità anno per anno, poi una ricerca per editore su tutto il blocco
         # (per editore anno per anno costerebbe una chiamata per ogni editore e ogni anno, anche quando non c'è niente)
@@ -260,7 +266,7 @@ def prossima_fase(stato):
         else:
             _, i, passo = f.split(':')
             i = int(i)
-        if passo == 'novita':
+        if passo == 'novita' and not SALTA_EDITORI:
             dal, al = blocchi[i]
             nuovi = lavori_editori(stato, 'editori', f'{max(dal, ANNO_MINIMO)}-01-01', f'{al}-12-31')
             stato['fase'] = f'blocco:{i}:editori'
@@ -301,6 +307,12 @@ class Raccolta:
         self.stato = json.loads(self.arch.leggi('stato.json')) if self.arch.esiste('stato.json') else stato_nuovo()
         self.stato['giri'] += 1
         self.parti_iniziali = self.stato.get('parti', 0)
+        if SALTA_EDITORI:
+            da_parte = [l for l in self.stato['coda'] if l.get('fase') == 'editori']
+            if da_parte:
+                self.stato.setdefault('editori_rimandati', []).extend(da_parte)
+                self.stato['coda'] = [l for l in self.stato['coda'] if l.get('fase') != 'editori']
+                print(f'[{ora()}] {len(da_parte)} ricerche per editore messe da parte (EDITORI=no)', flush=True)
 
     def salva(self):
         if self.buffer:
