@@ -195,6 +195,26 @@ def main(lavoro):
         'per_fonte': dict(Counter(f for s in elenco for f in s['fonti'])),
         'editori_principali': Counter(s['editore'] for s in elenco if not s['autopubblicato']).most_common(60),
     }
+    # 28/10: verifica delle novità in italiano anno per anno: edizioni (ISBN), opere, formati, autopubblicati, ristampe, fonte
+    ita = [s for s in elenco if s['lingua_it']]
+    per_anno_it = {}
+    for anno in range(2020, 2028):
+        a_ = [s for s in ita if s['anno'] == anno]
+        if not a_:
+            continue
+        per_anno_it[str(anno)] = {
+            'edizioni': len(a_),
+            'opere': len({chiave_opera(s) for s in a_}),
+            'autopubblicate': sum(s['autopubblicato'] for s in a_),
+            'ristampe_di_massa': sum(s['ristampa'] for s in a_),
+            'scolastiche': sum(s['scolastico'] for s in a_),
+            'utili_opere': len({chiave_opera(s) for s in a_ if not s['ristampa'] and not s['scolastico']}),
+            'utili_opere_di_editori': len({chiave_opera(s) for s in a_ if not s['ristampa'] and not s['scolastico'] and not s['autopubblicato']}),
+            'formati': dict(Counter(str(s['rilegatura'] or '?') for s in a_).most_common(6)),
+            'fonti': dict(Counter(f for s in a_ for f in s['fonti'])),
+        }
+    riepilogo['italiano_per_anno'] = per_anno_it
+
     # pronti per le schede (DeepSeek): libri utili con sinossi, contati come opere (una scheda per opera, non per edizione)
     cop = stato_copertine(arch)
     con_s = [s for s in ut if s['con_sinossi']]
