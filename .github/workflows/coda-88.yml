@@ -1,0 +1,21 @@
+name: coda-88
+# Prepara la coda supplementare delle schede complete OPAC con i libri "88" non ancora in coda (strumenti/coda_88.py).
+# Parte a mano. Segreto: RCLONE_CONF.
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  coda:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - name: Strumenti
+        run: curl -s https://rclone.org/install.sh | sudo bash > /dev/null
+      - name: Accesso al Drive
+        env:
+          RCLONE_CONF: ${{ secrets.RCLONE_CONF }}
+        run: python3 strumenti/rclone_conf.py
+      - name: Coda 88
+        run: python3 -u strumenti/coda_88.py

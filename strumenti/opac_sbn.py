@@ -293,6 +293,23 @@ def elenca(percorso):
 
 
 def coda_ordinata(lavoro):
+    """Coda principale della selezione, poi le code supplementari (schede_complete/coda_extra_*.tsv.gz, es. i libri "88"
+    aggiunti il 28/10), senza doppioni."""
+    coda, nome_sel = coda_principale(lavoro)
+    visti = {c for c, _, _ in coda}
+    for nome in sorted(x for x in elenca(CARTELLA) if re.match(r'coda_extra_.*\.tsv\.gz$', x)):
+        testo = gzip.decompress(rclone('cat', f'{CARTELLA}/{nome}', binario=True)).decode('utf-8')
+        prima = len(coda)
+        for l in testo.split('\n')[1:]:
+            p = l.split('\t')
+            if len(p) >= 2 and p[0] and p[0] not in visti:
+                visti.add(p[0])
+                coda.append((p[0], p[1] or None, (p[2] if len(p) > 2 else '') or None))
+        print(f'{nome}: {len(coda) - prima:,} libri aggiunti in fondo alla coda', flush=True)
+    return coda, nome_sel
+
+
+def coda_principale(lavoro):
     """[(codice, isbn, opera)] nell'ordine in cui vanno scaricati. Calcolata una volta per selezione e salvata nel Drive."""
     sel = selezione_pronta()
     if not sel:
@@ -499,13 +516,16 @@ def main():
     fino = os.environ.get('OPAC_PROVA_FINO', '')
     stato_conn = leggi_stato_connessioni(a.locale)
     ultimo_ok = stato_conn.get('ultimo_ok')
-    ripiego = bool(fino) and stato_conn.get('ripiego_fino') == fino
+    # 29/10: conta solo il tempo di giri falliti uno dopo l'altro ("primo_fallito"), non le pause in cui nessun giro
+    # girava: il 28/10 sera un'ora di lavoro fermo (coda in preparazione) aveva fatto scattare il ritorno a 30.
+    primo_fallito = stato_conn.get('primo_fallito')
+    ripiego = bool(fino) and stato_conn.get('ripiego_fino') == fino and stato_conn.get('ripiego_versione') == 2
     if fino and os.environ.get('OPAC_PROVA_CONNESSIONI'):
         try:
             if inizio < datetime.datetime.fromisoformat(fino.replace('Z', '+00:00')):
-                if not ripiego and ultimo_ok and inizio - datetime.datetime.fromisoformat(ultimo_ok) > datetime.timedelta(hours=1):
+                if not ripiego and primo_fallito and inizio - datetime.datetime.fromisoformat(primo_fallito) > datetime.timedelta(hours=1):
                     ripiego = True
-                    print(f'nessuna scheda da più di un\'ora (ultima: {ultimo_ok}): si torna a {a.connessioni} connessioni', flush=True)
+                    print(f'giri senza schede da più di un\'ora (dal {primo_fallito}): si torna a {a.connessioni} connessioni', flush=True)
                 if not ripiego:
                     a.connessioni = int(os.environ['OPAC_PROVA_CONNESSIONI'])
                 print(f'prova a tempo fino a {fino}: {a.connessioni} connessioni', flush=True)
@@ -589,7 +609,8 @@ def main():
                   f"non trovate {tot['non_trovate']}, errori {tot['errori']}", flush=True)
 
         def lavoratore(k):
-            time.sleep(k * 2)                        # le connessioni si aprono a qualche secondo l'una dall'altra
+            ferma.wait(k * 2)                        # le connessioni si aprono a qualche secondo l'una dall'altra
+                                                     # (se il giro si ferma intanto, quelle non ancora aperte escono subito)
             file_marc = os.path.join(a.lavoro, f'lotto_{k}.mrc')
             while not ferma.is_set() and time.time() < fine - 120 and k < st['limite']:
                 presi = prossimo_lotto()
@@ -675,8 +696,9 @@ def main():
             scrivi_livello(a.lavoro, a.locale, {'usato': livello, 'prossimo': prossimo, 'perche': perche,
                                                 'secondi_per_libro': secondi_per_libro, 'massimo': a.connessioni,
                                                 'quando': adesso,
-                                                'ultimo_ok': adesso if tot['schede'] > 0 else (ultimo_ok or adesso),
-                                                'ripiego_fino': fino if ripiego else None})
+                                                'ultimo_ok': adesso if tot['schede'] > 0 else ultimo_ok,
+                                                'primo_fallito': None if tot['schede'] > 0 else (primo_fallito or inizio.isoformat(timespec='seconds')),
+                                                'ripiego_fino': fino if ripiego else None, 'ripiego_versione': 2})
         dati = dict(tot, inizio=inizio.isoformat(timespec='seconds'),
                     fine=datetime.datetime.now(datetime.timezone.utc).isoformat(timespec='seconds'), nota=nota or 'ok')
         scrivi_giro(a.lavoro, giro, dati, a.locale)
