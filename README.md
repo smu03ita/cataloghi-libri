@@ -15,3 +15,10 @@ I dati letti e i risultati non stanno qui: vanno in un archivio privato. Qui ci 
 
 Fonti: Deutsche Nationalbibliothek, Bibliothèque nationale de France, Biblioteka Narodowa, Biblioteca Nacional de Portugal,
 Rahvusraamatukogu (Estonia, CC0), Koninklijke Bibliotheek, Library of Congress, Open Library, Wikidata (tramite QLever).
+
+## Regole degli ISBN (29/10)
+Tutti gli strumenti usano `strumenti/isbn.py`, con le regole di [isbnlib](https://github.com/xlcnd/isbnlib) (si usa il
+pacchetto se è installato, altrimenti le stesse regole scritte nel modulo): pulizia (trattini, spazi, «ISBN»), cifra di
+controllo per ISBN-13 (978/979) e ISBN-10, conversione da 10 a 13 cifre. `isbn13_tollerante()` tiene anche gli ISBN
+stampati con la cifra di controllo sbagliata, solo per riconoscere schede già note (OPAC, confronto dei cataloghi).
+Le stesse regole valgono nell'import CSV dell'app (azione `normalizzaCsvLibreria`).

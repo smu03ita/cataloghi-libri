@@ -41,7 +41,7 @@ jobs:
         run: |
           sudo apt-get update -qq && sudo apt-get install -y -qq yaz > /dev/null
           curl -s https://rclone.org/install.sh | sudo bash > /dev/null
-          pip install -q pymarc
+          pip install -q pymarc isbnlib
       - name: Accesso al Drive
         if: steps.segreti.outputs.ok == 'si'
         env:

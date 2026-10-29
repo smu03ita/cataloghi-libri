@@ -29,18 +29,9 @@ COLONNE = ['paese', 'file', 'id', 'isbn', 'libro', 'formato', 'titolo', 'autore'
            'editore', 'titolo_orig', 'sinossi_len', 'link_testo', 'link_indice']
 
 
-def isbn13(s):
-    d = re.sub(r'[^0-9Xx]', '', s or '').upper()
-    if len(d) == 13 and d.isdigit() and d[:3] in ('978', '979'):
-        c = (10 - sum(int(x) * (1 if i % 2 == 0 else 3) for i, x in enumerate(d[:12])) % 10) % 10
-        return d if int(d[12]) == c else None
-    if len(d) == 10 and d[:9].isdigit():
-        if d[9] != 'X' and not d[9].isdigit():
-            return None
-        b = '978' + d[:9]
-        c = (10 - sum(int(x) * (1 if i % 2 == 0 else 3) for i, x in enumerate(b)) % 10) % 10
-        return b + str(c)
-    return None
+# ISBN: le regole comuni di strumenti/isbn.py (isbnlib), con la cifra di controllo
+from isbn import isbn13  # noqa: E402
+
 
 
 RX_ISBN = re.compile(r'(?:97[89][\d\- ]{10,16}|\d[\d\- ]{8,12}[\dXx])')

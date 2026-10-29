@@ -53,14 +53,10 @@ PASSO = 2               # connessioni in più (o in meno) da un giro all'altro
 FISSO = os.environ.get('OPAC_FISSO', '').lower() in ('si', 'sì', '1', 'true')   # sempre il massimo, senza salita né freno
 SECONDI_NORMALI = 1.1   # secondi per libro su una connessione quando il server va bene (27/10: 200 libri in circa 3,4 minuti)
 
-def isbn13(s):
-    d = re.sub(r'[^0-9Xx]', '', s or '').upper()
-    if len(d) == 13 and d.isdigit():
-        return d
-    if len(d) == 10 and d[:9].isdigit():   # la X può essere solo l'ultima cifra
-        b = '978' + d[:9]
-        return b + str((10 - sum(int(x) * (1 if i % 2 == 0 else 3) for i, x in enumerate(b)) % 10) % 10)
-    return None
+# ISBN: le regole comuni di strumenti/isbn.py (isbnlib). Qui la versione tollerante: serve a riconoscere le schede
+# già in coda, anche quando l'ISBN stampato ha la cifra di controllo sbagliata.
+from isbn import isbn13_tollerante as isbn13  # noqa: E402
+
 
 
 # ---------------------------------------------------------------- lettura delle schede UNIMARC
