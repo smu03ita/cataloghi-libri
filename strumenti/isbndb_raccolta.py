@@ -42,7 +42,7 @@ FINE = '2030-12-31'
 # 28/10: le ricerche per editore rendono poco (4.700 chiamate per 25.000 libri utili, contro circa 45 per chiamata delle
 # novità anno per anno). Con EDITORI=no si saltano e si va dritti alle novità degli anni precedenti; le ricerche per
 # editore già in coda si mettono da parte (stato["editori_rimandati"]) per dopo.
-# 29/10 (Paolo: "voglio recuperare i libri usciti nel 2026-2025-2024"): con EDITORI=recenti si rimettono in testa alla
+# 29/10 (fondatore: "voglio recuperare i libri usciti nel 2026-2025-2024"): con EDITORI=recenti si rimettono in testa alla
 # coda le ricerche per editore dal 2024 messe da parte (ora solo in italiano, language=ita); per gli anni prima del 2024
 # le ricerche per editore restano saltate.
 MODO_EDITORI = os.environ.get('EDITORI', 'si').lower()

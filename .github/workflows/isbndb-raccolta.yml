@@ -28,7 +28,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          # 28/10 (Paolo): prima le copertine grandi dei libri già raccolti, poi la raccolta. Le due cose insieme superano
+          # 28/10 (fondatore): prima le copertine grandi dei libri già raccolti, poi la raccolta. Le due cose insieme superano
           # il limite di ISBNdb (una chiamata al secondo): se il rinnovo delle copertine è in corso, si riprova tra 15 minuti.
           n=$(gh run list -R "$GITHUB_REPOSITORY" --workflow isbndb-copertine.yml --status in_progress --json databaseId --jq 'length')
           if [ "$n" != "0" ]; then
@@ -65,7 +65,7 @@ jobs:
           RISERVA: '300'           # chiamate lasciate agli altri lavori (scheda dei libri dell'app)
           ANNO_MINIMO: '2000'      # fin dove andare a ritroso
           COPERTINE: 'si'          # 27/10: copertine grandi scaricate subito, mentre i link sono validi (2 ore)
-          EDITORI: 'recenti'       # 29/10 (Paolo): prima i libri 2024–2026, con le ricerche per editore dal 2024 solo in italiano;
+          EDITORI: 'recenti'       # 29/10 (fondatore): prima i libri 2024–2026, con le ricerche per editore dal 2024 solo in italiano;
                                    # poi novità 2023, 2022, 2021, 2020… (per quegli anni niente ricerche per editore)
         run: |
           set -o pipefail

@@ -51,7 +51,7 @@ jobs:
         run: |
           sudo apt-get install -y -qq pigz > /dev/null
           curl -s https://rclone.org/install.sh | sudo bash > /dev/null
-          pip install -q lxml
+          pip install -q lxml isbnlib
       - name: Accesso al Drive
         env:
           RCLONE_CONF: ${{ secrets.RCLONE_CONF }}
@@ -89,7 +89,7 @@ jobs:
         run: |
           sudo apt-get install -y -qq pigz > /dev/null
           curl -s https://rclone.org/install.sh | sudo bash > /dev/null
-          pip install -q pandas numpy requests
+          pip install -q pandas numpy requests isbnlib
       - name: Accesso al Drive
         env:
           RCLONE_CONF: ${{ secrets.RCLONE_CONF }}

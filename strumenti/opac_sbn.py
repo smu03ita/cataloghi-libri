@@ -12,7 +12,7 @@ Il workflow (.github/workflows/opac-sbn.yml) prova ogni 10 minuti e riprende sem
   5. ogni giro lascia un riepilogo in schede_complete/giri/ (si vedono gli orari in cui il server risponde).
 Regole: su ogni connessione una richiesta alla volta con una pausa tra le richieste, etichetta neutra, stop su errori ripetuti.
 
-Connessioni in parallelo (27/10 sera, decisione di Paolo: finire tutta la coda in circa 2 giorni). Tutte dallo stesso
+Connessioni in parallelo (27/10 sera, decisione del fondatore: finire tutta la coda in circa 2 giorni). Tutte dallo stesso
 computer, quindi il server ci vede e può rallentarci o fermarci come prima: nessun aggiramento. Il numero sale piano e scende
 da solo (schede_complete/connessioni.json):
   - il primo giro usa 4 connessioni, aperte a qualche secondo l'una dall'altra;
@@ -20,7 +20,7 @@ da solo (schede_complete/connessioni.json):
     (--connessioni o OPAC_CONNESSIONI, 8 nel workflow);
   - se il server rallenta (tempo per libro una volta e mezza quello normale) o gli errori superano il 2% → 2 in meno;
   - se il server smette di rispondere → tutte le connessioni si fermano subito, e al giro dopo sono la metà.
-27/10 sera, decisione di Paolo: niente salita né freno, sempre il massimo da subito (OPAC_FISSO=si nel workflow):
+27/10 sera, decisione del fondatore: niente salita né freno, sempre il massimo da subito (OPAC_FISSO=si nel workflow):
 8 connessioni, dalle 19:45 15. Il server smette di rispondere dopo 2-4 minuti anche con 1 o 2 connessioni.
 Se il server smette di rispondere ci si ferma lo stesso e si riprova dopo 10 minuti, di nuovo con 8 connessioni.
 Segreto: RCLONE_CONF (Drive).
@@ -53,14 +53,10 @@ PASSO = 2               # connessioni in più (o in meno) da un giro all'altro
 FISSO = os.environ.get('OPAC_FISSO', '').lower() in ('si', 'sì', '1', 'true')   # sempre il massimo, senza salita né freno
 SECONDI_NORMALI = 1.1   # secondi per libro su una connessione quando il server va bene (27/10: 200 libri in circa 3,4 minuti)
 
-def isbn13(s):
-    d = re.sub(r'[^0-9Xx]', '', s or '').upper()
-    if len(d) == 13 and d.isdigit():
-        return d
-    if len(d) == 10 and d[:9].isdigit():   # la X può essere solo l'ultima cifra
-        b = '978' + d[:9]
-        return b + str((10 - sum(int(x) * (1 if i % 2 == 0 else 3) for i, x in enumerate(b)) % 10) % 10)
-    return None
+# ISBN: le regole comuni di strumenti/isbn.py (isbnlib). Qui la versione tollerante: serve a riconoscere le schede
+# già in coda, anche quando l'ISBN stampato ha la cifra di controllo sbagliata.
+from isbn import isbn13_tollerante as isbn13  # noqa: E402
+
 
 
 # ---------------------------------------------------------------- lettura delle schede UNIMARC
@@ -111,7 +107,13 @@ def scheda(r):
         'soggetti': [s for s in soggetti if s][:20],
         'sinossi': '\n'.join(_sf(r, '330', 'a'))[:6000] or None,
         'titolo_uniforme': (_sf(r, '500', 'a') or [None])[0],
+        # 454 «traduzione di»: il titolo originale è nel 200 incorporato ($1 200 $a)
+        'titolo_originale': (_sf(r, '454', 'a') or [None])[0],
         'autori': autori[:20],
+        # ruoli del campo 702 (e 701): 730 traduttore, 340 curatore, 440 illustratore
+        'traduttori': [a['nome'] for a in autori if a['ruolo'] == '730'][:5],
+        'curatori': [a['nome'] for a in autori if a['ruolo'] == '340'][:5],
+        'illustratori': [a['nome'] for a in autori if a['ruolo'] == '440'][:5],
         'n_biblioteche': len(biblioteche - {''}) if biblioteche else 0,
         'note': _sf(r, '300', 'a')[:10],
     }
@@ -481,7 +483,7 @@ def scrivi_livello(lavoro, locale, dati):
 
 def prossimo_livello(livello, massimo, fermato_dal_server, giro_ok, tot, secondi_per_libro):
     if FISSO:
-        return massimo, 'numero fisso (decisione di Paolo, 27/10)'
+        return massimo, 'numero fisso (decisione del fondatore, 27/10)'
     provati = tot['schede'] + tot['non_trovate'] + tot['errori']
     if fermato_dal_server:
         return max(1, livello // 2), 'il server ha smesso di rispondere: metà delle connessioni'
@@ -505,7 +507,7 @@ def main():
     a = ap.parse_args()
     inizio = datetime.datetime.now(datetime.timezone.utc)
     # prova a tempo (28/10): più connessioni fino a OPAC_PROVA_FINO, poi si torna da sole al numero normale.
-    # Regola di Paolo (28/10 12:56): se durante la prova non arriva nessuna scheda per più di un'ora, si torna al numero
+    # Regola del fondatore (28/10 12:56): se durante la prova non arriva nessuna scheda per più di un'ora, si torna al numero
     # normale (OPAC_CONNESSIONI) fino alla fine della prova. "ultimo_ok" e "ripiego_fino" stanno in connessioni.json.
     fino = os.environ.get('OPAC_PROVA_FINO', '')
     stato_conn = leggi_stato_connessioni(a.locale)

@@ -45,15 +45,9 @@ LINGUA_MARC = {'ger': 'de', 'deu': 'de', 'fre': 'fr', 'fra': 'fr', 'pol': 'pl', 
 LINGUE_WD = sorted(set(WIKI_PAESE.values()))
 
 
-def isbn13(s):
-    d = re.sub(r'[^0-9Xx]', '', s or '').upper()
-    if len(d) == 13 and d.isdigit():
-        return d
-    if len(d) == 10 and d[:9].isdigit():
-        b = '978' + d[:9]
-        c = (10 - sum(int(x) * (1 if i % 2 == 0 else 3) for i, x in enumerate(b)) % 10) % 10
-        return b + str(c)
-    return None
+# ISBN: le regole comuni di strumenti/isbn.py (isbnlib); tollerante come prima, per confrontare i cataloghi
+from isbn import isbn13_tollerante as isbn13  # noqa: E402
+
 
 
 def flusso(percorso):
