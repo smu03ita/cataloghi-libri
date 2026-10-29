@@ -10,6 +10,9 @@ circa 220 px) no. Per avere le grandi bisogna scaricarle subito. Due modi:
     viene scaricato in sottofondo, senza chiamate in più;
   - rinnovo (questo programma, --modo rinnova): per i libri già raccolti si chiedono di nuovo a ISBNdb 100 libri per
     chiamata, così i link sono freschi, e si scaricano subito. Usa la quota del giorno e si ferma alla riserva.
+    ATTENZIONE (29/10/2026): per ISBNdb ogni ISBN di POST /books vale una chiamata: 100 ISBN = 100 chiamate.
+    Il 29/10 50 richieste hanno consumato tutte le 5.000 chiamate del giorno. Workflow disattivato: non va usato
+    senza una richiesta esplicita di Paolo.
   - solo link (--modo link): i link già salvati nell'elenco, senza chiamate (le grandi di solito sono scadute).
 
 Libri utili: in italiano, non ristampe di massa, non scolastici. Nel rinnovo: prima gli editori, poi gli
