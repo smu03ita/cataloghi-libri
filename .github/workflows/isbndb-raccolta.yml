@@ -65,7 +65,8 @@ jobs:
           RISERVA: '300'           # chiamate lasciate agli altri lavori (scheda dei libri dell'app)
           ANNO_MINIMO: '2000'      # fin dove andare a ritroso
           COPERTINE: 'si'          # 27/10: copertine grandi scaricate subito, mentre i link sono validi (2 ore)
-          EDITORI: 'no'            # 28/10: niente ricerche per editore (rendono poco): dritti alle novità 2023, 2022, 2021, 2020…
+          EDITORI: 'recenti'       # 29/10 (Paolo): prima i libri 2024–2026, con le ricerche per editore dal 2024 solo in italiano;
+                                   # poi novità 2023, 2022, 2021, 2020… (per quegli anni niente ricerche per editore)
         run: |
           set -o pipefail
           python3 -u strumenti/isbndb_raccolta.py --minuti 300 2>&1 | tee "$RUNNER_TEMP/isbndb.log"

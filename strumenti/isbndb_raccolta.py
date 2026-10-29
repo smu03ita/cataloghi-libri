@@ -42,7 +42,11 @@ FINE = '2030-12-31'
 # 28/10: le ricerche per editore rendono poco (4.700 chiamate per 25.000 libri utili, contro circa 45 per chiamata delle
 # novità anno per anno). Con EDITORI=no si saltano e si va dritti alle novità degli anni precedenti; le ricerche per
 # editore già in coda si mettono da parte (stato["editori_rimandati"]) per dopo.
-SALTA_EDITORI = os.environ.get('EDITORI', 'si').lower() == 'no'
+# 29/10 (Paolo: "voglio recuperare i libri usciti nel 2026-2025-2024"): con EDITORI=recenti si rimettono in testa alla
+# coda le ricerche per editore dal 2024 messe da parte (ora solo in italiano, language=ita); per gli anni prima del 2024
+# le ricerche per editore restano saltate.
+MODO_EDITORI = os.environ.get('EDITORI', 'si').lower()
+SALTA_EDITORI = MODO_EDITORI in ('no', 'recenti')
 # dopo il 2024, a ritroso per blocchi di anni (dal, al)
 BLOCCHI = [(2020, 2023), (2015, 2019), (2010, 2014), (2000, 2009), (1900, 1999)]
 INIZIO = '1000-01-01'
@@ -307,8 +311,17 @@ class Raccolta:
         self.stato = json.loads(self.arch.leggi('stato.json')) if self.arch.esiste('stato.json') else stato_nuovo()
         self.stato['giri'] += 1
         self.parti_iniziali = self.stato.get('parti', 0)
+        if MODO_EDITORI == 'recenti':
+            rimandati = self.stato.get('editori_rimandati') or []
+            recenti = [l for l in rimandati if l.get('da', '') >= '2024-01-01']
+            if recenti:
+                ids = {l['id'] for l in recenti}
+                self.stato['coda'] = recenti + [l for l in self.stato['coda'] if l['id'] not in ids]
+                self.stato['editori_rimandati'] = [l for l in rimandati if l['id'] not in ids]
+                print(f'[{ora()}] {len(recenti)} ricerche per editore dal 2024 rimesse in testa alla coda (solo italiano)', flush=True)
         if SALTA_EDITORI:
-            da_parte = [l for l in self.stato['coda'] if l.get('fase') == 'editori']
+            da_parte = [l for l in self.stato['coda'] if l.get('fase') == 'editori'
+                        and not (MODO_EDITORI == 'recenti' and l.get('da', '') >= '2024-01-01')]
             if da_parte:
                 self.stato.setdefault('editori_rimandati', []).extend(da_parte)
                 self.stato['coda'] = [l for l in self.stato['coda'] if l.get('fase') != 'editori']
