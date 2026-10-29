@@ -366,6 +366,8 @@ def prova_cerca(percorsi):
             lingue = collections.Counter(str(x.get('language')) for x in libri if isinstance(x, dict))
             editori = collections.Counter(str(x.get('publisher')) for x in libri if isinstance(x, dict))
             info = f"totale {d.get('total')}, libri {len(libri)}, lingue {dict(lingue.most_common(5))}, editori {dict(editori.most_common(3))}"
+            if isinstance(d.get('plan_limit'), dict):
+                info = f"quota: {d['plan_limit']}"
         except Exception:
             info = 'risposta non JSON: ' + senza_segreti(corpo[:150])
         print(f'::notice title=prova ricerca::{percorso} · HTTP {stato} · {info}', flush=True)
