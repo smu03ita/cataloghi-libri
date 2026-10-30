@@ -62,7 +62,7 @@ jobs:
         if: steps.segreti.outputs.ok == 'si'
         env:
           ISBNDB_API_KEY: ${{ secrets.ISBNDB_API_KEY }}
-          RISERVA: '300'           # chiamate lasciate agli altri lavori (scheda dei libri dell'app)
+          RISERVA: '0'             # 30/10 (Paolo): usare tutte le chiamate del giorno, niente riserva (prima 300 per la scheda libri dell'app)
           ANNO_MINIMO: '2000'      # fin dove andare a ritroso
           COPERTINE: 'si'          # 27/10: copertine grandi scaricate subito, mentre i link sono validi (2 ore)
           EDITORI: 'recenti'       # 29/10 (Paolo): prima i libri 2024–2026, con le ricerche per editore dal 2024 solo in italiano;
