@@ -346,7 +346,7 @@ class Raccolta:
             rimaste, _ = self.api.rimaste()
             self.quota = (rimaste, self.api.chiamate)
         rimaste = self.quota[0] - (self.api.chiamate - self.quota[1])
-        if rimaste < RISERVA:
+        if rimaste <= RISERVA:     # 31/10: con RISERVA 0 ci si ferma a quota zero (prima "<" faceva un'ultima chiamata a vuoto)
             raise Fermati(f'chiamate ISBNdb di oggi quasi finite (ne restano {rimaste}, riserva {RISERVA})')
 
     def aggiungi(self, l, libri):
@@ -412,6 +412,10 @@ class Raccolta:
                     self.salva()
         except Fermati as e:
             motivo = str(e)
+        except RuntimeError as e:
+            # 31/10: a quota finita ISBNdb a volte risponde con errori invece che col conteggio: il giro si chiudeva con un
+            # errore e non ripartiva da solo. Ora si salva, e il workflow riprova tra un'ora come a quota finita.
+            motivo = str(e)
         finally:
             self.stato['chiamate_totali'] += self.api.chiamate
             self.salva()
@@ -447,7 +451,7 @@ def main():
     # quota del giorno finita: il workflow riprova tra un'ora (non si conta sui tentativi programmati, che GitHub salta)
     if motivo == 'tempo del giro finito':
         open(os.path.join(a.lavoro, 'continua'), 'w').close()
-    elif 'quasi finite' in motivo:
+    elif 'quasi finite' in motivo or 'non risponde' in motivo:
         open(os.path.join(a.lavoro, 'riprova'), 'w').close()
 
 
