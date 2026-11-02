@@ -16,7 +16,7 @@ Come si tolgono i doppioni:
        con titoli di meno di 4 lettere.
   La sinossi non serve a riconoscere i libri (due edizioni dello stesso libro possono averla diversa).
 
-Da ISBNdb entrano solo i libri "utili" come in isbndb_elenco.py: in italiano, non ristampe di massa, non scolastici.
+Da ISBNdb entrano solo i libri "utili": in italiano, non scolastici, non ristampe di massa riconosciute per nome (RISTAMPE).
 Gli autopubblicati entrano, segnati.
 
 Testi per la scheda (sinossi): presentazione OPAC (campo 330), sinossi ISBNdb, trama Wikipedia, descrizione Open
@@ -226,10 +226,13 @@ def leggi_isbndb(cartella, conta):
                                    'soggetti', 'altri_isbn', 'fonti', 'romance', 'autopubblicato')}
             s['soggetti'] = s['soggetti'][:8]
             libri[s['isbn13']] = unisci_isbndb(libri[s['isbn13']], s) if s['isbn13'] in libri else s
-    per_editore = collections.Counter(s['editore'].lower() for s in libri.values())
+    # 02/11: con 2 milioni di righe anche editori veri (Mondadori, Einaudi...) superano TETTO_EDITORE titoli in italiano,
+    # quindi qui le ristampe si tolgono SOLO per nome (RISTAMPE); gli editori sopra il tetto si elencano nel riepilogo
+    # per controllarli a mano, senza toglierli
+    per_editore = collections.Counter(s['editore'] for s in libri.values() if not s['autopubblicato'])
+    conta['_oltre_tetto'] = [(e, n) for e, n in per_editore.most_common(60) if n > TETTO_EDITORE and not RISTAMPE.search(e)]
     for isbn in list(libri):
-        s = libri[isbn]
-        if RISTAMPE.search(s['editore']) or (per_editore[s['editore'].lower()] > TETTO_EDITORE and not s['autopubblicato']):
+        if RISTAMPE.search(libri[isbn]['editore']):
             conta['isbndb_ristampe'] += 1
             del libri[isbn]
     conta['isbndb_libri_diversi'] = len(conta.pop('_isbndb_isbn'))
@@ -449,13 +452,14 @@ def main():
         'aggiornato': ora(),
         'regole': 'stessa edizione = stesso ISBN-13; stessa opera = stessa opera nella selezione SBN, altri ISBN di ISBNdb, '
                   f'o stesso titolo senza sottotitolo + stesso nome della prima autrice. Sinossi = testo di almeno {MIN_SINOSSI} caratteri. '
-                  'Da ISBNdb solo libri in italiano, non scolastici, non ristampe di massa.',
+                  'Da ISBNdb solo libri in italiano, non scolastici, non ristampe di massa (riconosciute per nome).',
         'fonti': {
             'opac_schede': conta['opac_schede'], 'opac_con_presentazione': conta['opac_con_presentazione'],
             'isbndb_righe_grezze': conta['isbndb_righe_grezze'], 'isbndb_libri_diversi': conta['isbndb_libri_diversi'],
             'isbndb_utili_in_italiano': conta['isbndb_utili'], 'isbndb_scolastici_tolti': conta['isbndb_scolastici'],
             'isbndb_ristampe_tolte': conta['isbndb_ristampe'], 'isbn_sia_in_opac_sia_in_isbndb': conta['isbn_in_opac_e_isbndb'],
             'selezione_opere': conta['selezione_opere'], 'copertine_isbndb_scaricate': conta['copertine_scaricate'],
+            'editori_isbndb_oltre_5000_titoli_tenuti': conta['_oltre_tetto'],
         },
         'totale': {'opere': R['opere'], 'edizioni_con_isbn': R['edizioni_isbn'], 'opere_per_fonte': dict(per_fonti.most_common())},
         'con_sinossi': {
