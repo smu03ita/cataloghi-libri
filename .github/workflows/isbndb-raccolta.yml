@@ -1,4 +1,6 @@
 name: isbndb-raccolta
+# DAL 02/11/2026 GIRA SUL SERVER (fabula-backed: server/14-lavori-dati.sh e server/lavori/), ogni ora a :41: il server legge
+# da questo file le impostazioni dei passi (env e comandi) a ogni giro, quindi si cambiano qui. Su GitHub solo a mano (su_github = si).
 # Libri in italiano da ISBNdb per Fabula: tutti i romance, poi le novità dal 2024 e a ritroso. Tutto nel Drive
 # (cataloghi/Italia/isbndb): grezzi, stato per riprendere, elenco pulito (JSONL e CSV) e riepilogo. Vedi strumenti/isbndb_raccolta.py.
 # Il piano Basic ha 5.000 chiamate al giorno, condivise con gli altri lavori: a quota quasi finita il giro si ferma e
@@ -6,12 +8,11 @@ name: isbndb-raccolta
 # Dal 27/10 scarica anche le copertine grandi dei libri utili mentre raccoglie (strumenti/isbndb_copertine.py).
 # Segreti: ISBNDB_API_KEY (chiave ISBNdb), RCLONE_CONF (accesso al Drive).
 on:
-  schedule:
-    - cron: '41 5,17 * * *'      # due volte al giorno: riprende quando la quota del giorno è di nuovo disponibile
   workflow_dispatch:
-  push:                          # per far partire un giro a mano: cambiare avvia/isbndb.txt
-    branches: [main]
-    paths: ['avvia/isbndb.txt']
+    inputs:
+      su_github:
+        description: 'Dal 02/11/2026 gira sul server. si = giro qui su GitHub, SOLO se sul server è spento (fabula-backed server/lavori/accesi.txt), altrimenti gira due volte'
+        default: 'no'
 permissions:
   contents: read
   actions: write                 # per far partire il giro successivo
@@ -20,6 +21,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   raccolta:
+    if: inputs.su_github == 'si'
     runs-on: ubuntu-latest
     timeout-minutes: 355
     steps:
